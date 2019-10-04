@@ -1,0 +1,105 @@
+---
+title: "Sex effect on latent variable expression in NF tumors"
+author: "Robert Allaway"
+date: "`r sys.Date()'"
+output: html_document
+---
+
+Here, we're evaluating the expression of latent variables in NF tumors as they pertain to the sex of the patient. These data were generated as part of developing the braiNFood app. 
+
+#Import packages
+
+First, import packages to process and plot the data. We'll use `infer` to perform significance testing. 
+
+```{r}
+library(feather)
+library(dplyr)
+library(purrr)
+library(infer)
+library(stringr)
+library(ggbeeswarm)
+
+download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = "./mp_res.feather")
+mp_res<-read_feather('./mp_res.feather') %>% filter(sex != "NA", isCellLine != "TRUE")
+
+```
+
+#Significance testing
+
+We already have the expression of the latent variables in these tumors, and we've filtered out samples that have low variance across the cohort as part of that data generation process. 
+
+Then, we define a function to perform a t-test based on the expression of a latent variable as a function of the sex of the patient the sample was taken from. 
+
+Then we take the tidy data frame of latent variable data, group by the variable and tumor type, nest the dataframe based on those groups, and then calculate the p-value for each nested data frame. Finally, we plot a boxplot for any latent variable where the BH-adjusted p-value is <0.1 when comparing female to male tumors. 
+
+In addition, we'll also do this analysis between the two sexes without regard for the tumor type to see if there are any consistent differences when the type of tumor is not a factor. 
+
+```{r}
+ttest <- function(x){
+  out <- tryCatch(
+        {
+          bar <- x %>% t_test(formula = value ~ sex, order = c("Female", "Male"))
+          p <- p.adjust(bar$p_value, n = length(unique(mp_res$latent_var)), method = "BH")
+           return(p)
+        }, error=function(cond) {
+            return(NA)
+        })
+}
+
+
+res_model <- mp_res %>% 
+  group_by(latent_var, tumorType) %>% 
+  nest() %>% 
+  mutate(pval = map(data,ttest) %>% 
+           as.numeric %>% 
+           round(., digits = 3)) %>% 
+  filter(pval < 0.1) %>% 
+  mutate(title = paste0(latent_var, " in ", modelOf, " BH p-value = ", pval) %>% 
+           str_wrap(., width = 40)) %>% 
+  mutate(plots = map2(title, data, function(.x,.y){
+      ggplot(data = .y) +
+      geom_boxplot(aes(x = sex, y = value, fill = sex)) +
+      geom_beeswarm(aes(x = sex, y = value)) +
+      ggtitle(.x) +
+      theme_bw()
+  }))
+
+
+res_no_grouping <- mp_res %>% 
+  group_by(latent_var) %>% 
+  nest() %>% 
+  mutate(pval = map(data,ttest) %>% 
+           as.numeric %>% 
+           round(., digits = 3)) %>% 
+  filter(pval < 0.1) %>% 
+  mutate(title = paste0(latent_var, " BH p-value = ", pval) %>% 
+                      str_wrap(., width = 40)) %>% 
+  mutate(plots = map2(title, data, function(.x,.y){
+      ggplot(data = .y) +
+      geom_boxplot(aes(x = sex, y = value, fill = sex)) +
+      geom_beeswarm(aes(x = sex, y = value)) +
+      ggtitle(.x) +
+      theme_bw()
+  }))
+
+
+```
+
+#Plots 
+
+Here are the latent variables where BH p < 0.1 when grouping by tumor type.
+
+```{r}
+
+res_model$plots
+
+```
+
+Here are the latent variables where BH p < 0.1 when considering all tumors at once. 
+
+```{r}
+
+res_no_grouping$plots
+
+```
+

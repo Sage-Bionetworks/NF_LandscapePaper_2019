@@ -1,0 +1,61 @@
+---
+title: "05-Tumor Deconvolution Plots"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+require(tidyverse)
+```
+
+## Landscape of immune cells
+Interesting to plot all the tumors by immune score.
+
+First get the tumor de-convolution results for NF1 tumors from synapse, combine non-standard tumor types and handle basic renaming of variables.
+```{r,warning=FALSE}
+tab<-synapser::synTableQuery("select * from syn20710536")$asDataFrame()
+
+tab<-subset(tab,diagnosis=='Neurofibromatosis 1')
+
+tab$tumorType[which(tab$tumorType%in%c("Ependymoma","Ganglioglioma"))]<-'Other'
+
+tab$tumorType[which(tab$tumorType=="Malignant peripheral nerve sheath tumor")]<-"Malignant Peripheral Nerve Sheath Tumor"
+```
+
+## Reshape the table
+```{r}
+##now what do we see on a tissue level? 
+
+annotes=tab%>%select(specimenID,tumorType,sex,study)%>%distinct()
+rownames(annotes)<-annotes$specimenID
+
+mat<-tab%>%subset(tumorType!='Other')%>%subset(method!='xcell')%>%
+  select(specimenID,score,method,cell_type)%>%
+  spread(key=specimenID,value=score)
+
+```
+
+## Plot the heatmaps
+```{r}
+library(pheatmap)
+annotes<-select(annotes,-specimenID)
+for(meth in unique(mat$method)){
+  sub.mat<-subset(mat,method==meth)%>%select(-method)
+  rownames(sub.mat)<-sub.mat$cell_type
+  sub.mat<-select(sub.mat,-cell_type)
+  if(meth=='mcp_counter')
+    sub.mat<-log10(0.01+sub.mat)
+  pheatmap(sub.mat,cellwidth = 10,cellheight=10,annotation_col = annotes,filename=paste0(meth,'NFpreds.pdf'))
+  
+  pheatmap(sub.mat,cellwidth = 10,cellheight=10,annotation_col = annotes)
+}
+
+```

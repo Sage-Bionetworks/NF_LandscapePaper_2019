@@ -46,17 +46,23 @@ sigs
 ```
 
 There are numerous significant cell-type/tumor combinations.
-```{r}
-for(ct in unique(sigs$cell_type)){
-  sigs.t=subset(sigs,cell_type==ct)
-#  for(tu in unique(sigs$tumorType)){
-  tab.t=subset(tab,tumorType%in%sigs.t$tumorType)%>%subset(cell_type==ct)
-    
-  #  tab.p<-subset(tab.t,method==meth)%>%subset(cell_type%in%(sigs.t$cell_type))
- p<-ggplot(tab.t,palette='jco')+geom_boxplot(aes(x=cell_type,fill=sex,y=score))+facet_grid(.~tumorType)+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
- # p<-ggboxplot(subset(tab.t,cell_type=='Neutrophil'),x='tumorType',y='score',color='sex',palette='jco')+stat_compare_means(method='t.test')+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  print(p)
+```{r,warning=FALSE}
+library(ggpubr)
 
+for(ct in unique(sigs$method)){
+  sigs.t=subset(sigs,method==ct)
+  for(tu in unique(sigs.t$tumorType)){
+    sigs.tt=subset(sigs.t,tumorType==tu)
+    tab.t=subset(tab,method=ct)%>%subset(tumorType==tu)%>%subset(cell_type%in%sigs.tt$cell_type)
+
+  p<-ggboxplot(tab.t,x='sex',y='score',facet.by='cell_type',color='sex',palette='jco')+stat_compare_means(method='t.test')+ggtitle(paste(ct,tu,' significant differences'))
+  print(p)
+  
+  #  tab.p<-subset(tab.t,method==meth)%>%subset(cell_type%in%(sigs.t$cell_type))
+# p<-ggplot(tab.t,palette='jco')+geom_boxplot(aes(x=cell_type,fill=sex,y=score))+facet_grid(.~tumorType)+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ # p<-ggboxplot(subset(tab.t,cell_type=='Neutrophil'),x='tumorType',y='score',color='sex',palette='jco')+stat_compare_means(method='t.test')+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ # print(p)
+}
   
 }
 
@@ -64,7 +70,6 @@ for(ct in unique(sigs$cell_type)){
 There are some interesting tumor-specific differences, primarily in cNFs, but also some in MPNSTs (with their lone male)
 
 ```{r,warning=FALSE}
-library(ggpubr)
 res<-tab%>%spread(key=sex,value=score)%>%
   group_by(method,cell_type)%>%
     mutate(pval=t.test(female,male)$p.value)%>%
@@ -76,14 +81,14 @@ res<-tab%>%spread(key=sex,value=score)%>%
 sigs<-subset(res,pval<0.05)
 sigs
 ```
-More significant pathways, we can try to  plot them
+## Pan-tumor sex differences
 
 ```{r}
 
 for(meth in unique(tab$method)){
   tab.p<-subset(tab,method==meth)%>%subset(cell_type%in%(sigs$cell_type))
 
-  p<-ggboxplot(tab.p,x='sex',y='score',facet.by='cell_type',color='sex',palette='jco')+stat_compare_means(method='t.test')
+  p<-ggboxplot(tab.p,x='sex',y='score',facet.by='cell_type',color='sex',palette='jco')+stat_compare_means(method='t.test')+ggtitle(paste(meth,'significant differences'))
   print(p)
 }
 

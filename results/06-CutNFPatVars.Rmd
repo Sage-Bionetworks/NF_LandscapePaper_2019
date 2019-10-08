@@ -1,0 +1,103 @@
+---
+title: "06 - Cutaneous Neurofibroma patient Variables"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+require(tidyverse)
+```
+
+## Synapse tables with data in them
+We have two tables on synapse that have cNF patient data in them
+- [Patient Table](https://www.synapse.org/#!Synapse:syn7342635/tables/)
+- [Sample Table](https://www.synapse.org/#!Synapse:syn5556216/tables/)
+
+
+```{r,warning=FALSE}
+pat.tab<-synapser::synTableQuery("SELECT Patient,Race,Gender,Age,Pain,Itching FROM syn7342635")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+samp.tab<-synapser::synTableQuery("SELECT Patient,TumorNumber,Length_in_mm FROM syn5556216")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+pat.tab
+
+samp.tab
+```
+For the purposes of this analysis we want to have just the age, sex, tumor size and and 'reformed' patient name
+```{r, warning=FALSE}
+full.tab<-samp.tab%>%left_join(pat.tab,by='Patient')%>%
+  mutate(specimenID=paste0('patient',Patient,'tumor',TumorNumber))
+full.tab
+```
+
+Now we can evaluate other things
+
+## Plot the data
+```{r}
+##now what do we see on a tissue level? 
+require(ggplot2)
+
+p<-ggplot(full.tab)+geom_point(aes(x=Age,y=Length_in_mm,color=Itching,shape=Gender))+ggtitle("Age by tumor size with itching")
+
+print(p)
+
+p<-ggplot(full.tab)+geom_point(aes(x=Age,y=Length_in_mm,color=Itching,shape=Pain))+ggtitle("Age by tumor size with pain")
+print(p)
+```
+So the pain/itching variables only go by patient, so we can't figure out which samples are in pain/itching.  
+
+
+## Get the expression data and see what correlates
+```{r}
+exp.data<-synTableQuery('select * from syn20449214 where tumorType=\'Cutaneous Neurofibroma\'')$asDataFrame()
+
+data.with.var<-exp.data%>%left_join(full.tab,by='specimenID')
+
+#now compute the correlation with size for each transcript...?
+gene.cors=data.with.var%>%group_by(Symbol)%>%mutate(corVal=cor(zScore,Length_in_mm))
+
+top.genes=select(gene.cors,corVal)%>%distinct()%>%arrange(desc(corVal))%>%select(Symbol)
+
+bottom.genes=select(gene.cors,corVal)%>%distinct()%>%arrange(corVal)%>%select(Symbol)
+ 
+```
+
+Now we have the genes most correlated with tumor size
+```{r}
+top.genes
+```
+and the genes least correlated
+```{r}
+bottom.genes
+```
+
+Now what do these look like?
+
+```{r}
+
+ggplot(subset(data.with.var,Symbol%in%c(top.genes$Symbol[1:10])))+geom_point(aes(x=Length_in_mm,y=zScore,col=Symbol,shape=sex))+ggtitle('10 most correlated genes')
+
+ggplot(subset(data.with.var,Symbol%in%c(bottom.genes$Symbol[1:10])))+geom_point(aes(x=Length_in_mm,y=zScore,col=Symbol,shape=sex))+ggtitle('10 most anti-correlated genes')
+
+```
+
+We should do pathway enrichment of these genes, see if they are doing anything. The fact that HOXB3 is there is already interesting. What else could there be???
+
+## Next steps
+I think this is actually pretty cool - we can try to identify which are the 'driving' genes of cNF growth. 
+* What pathways are enriched in these genes?
+* Are these correlations statistically significant?
+* Are there differences in correlated genes b/w male and female patients?
+* What are these genes doing in pNFs and MPNSTs? 
+* Are any of these correlated with immune reponse (conversely are immune signatures correlated with this size variable)?
+
+Are there other questions we can answer?

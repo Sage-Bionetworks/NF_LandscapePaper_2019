@@ -44,7 +44,7 @@ combined=dtab%>%select(c(cell_type,method,specimenID,immScore))%>%
 
 Then we can compute the correlation of each cell type measurement with each protein
 ```{r, warning=FALSE}
-corVals=combined%>%group_by(cell_type,latent_var,method)%>%summarize(corVal=cor(immScore,value,use='pairwise.complete.obs'))
+corVals=combined%>%group_by(cell_type,latent_var,method)%>%summarize(corVal=cor(immScore,value,method = "spearman"))
 
 DT::datatable(corVals)
 ```
@@ -63,10 +63,10 @@ print(p)
 There are some latent variables that show up as highly correlated. By choosing a threshold, we can evaluate what they are in more detail.
 
 ```{r, warning=FALSE}
-corthresh=0.65
+corthresh=0.6
 
-##now filter to the cell types with correlated latent variables
-cor_cell_types=subset(corVals,corVal>corthresh)%>%ungroup()%>%
+##now filter to the cell types with correlated latent variables (or anticorrelated)
+cor_cell_types=subset(corVals,abs(corVal)>corthresh)%>%ungroup()%>%
   select(cell_type,method)%>%unique()
 print(paste('we found',nrow(cor_cell_types),'cell types with some latent variable correlation greater than',corthresh))
 
@@ -77,7 +77,7 @@ apply(cor_cell_types,1,function(x){
 
   #for each gene and cell type
   lvs=subset(corVals,cell_type==ct)%>%
-        subset(corVal>corthresh)%>%
+        subset(abs(corVal)>corthresh)%>%
     subset(method==m)%>%arrange(desc(corVal))%>%
       ungroup()
 

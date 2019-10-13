@@ -1,0 +1,134 @@
+---
+title: "08 - Cutaneous Neurofibroma Tumor Growht and Immune Cor"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+require(tidyverse)
+```
+
+## Synapse tables with data 
+We have two tables on synapse that have cNF patient data in them
+- [Patient Table](https://www.synapse.org/#!Synapse:syn7342635/tables/)
+- [Sample Table](https://www.synapse.org/#!Synapse:syn5556216/tables/)
+
+We also have Immune Data
+- [Tumor Deconvolution Table](https://www.synapse.org/#!Synapse:syn20710536/tables/)
+
+Let's see if there are any correlations between immune populations and tumor growth.
+
+
+```{r,warning=FALSE}
+pat.tab<-synapser::synTableQuery("SELECT Patient,Race,Gender,Age,Pain,Itching FROM syn7342635")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+samp.tab<-synapser::synTableQuery("SELECT Patient,TumorNumber,Length_in_mm FROM syn5556216")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+
+```
+
+## Merge data together
+For the purposes of this analysis we want to have just the age, sex, tumor size and and 'reformed' patient name
+```{r, warning=FALSE}
+full.tab<-samp.tab%>%left_join(pat.tab,by='Patient')%>%
+  mutate(specimenID=paste0('patient',Patient,'tumor',TumorNumber))
+DT::datatable(full.tab)
+```
+
+Now we can get the immune data!
+
+## Collect Immune Data
+
+Now we can download the imune data and evaluate any correlations betwen scores and tumor size
+```{r,warning=FALSE}
+imm.data<-synTableQuery("SELECT * FROM syn20710536 where tumorType='Cutaneous Neurofibroma'")$asDataFrame()
+data.with.var<-imm.data%>%left_join(full.tab,by='specimenID')
+
+#now coampute the correlation with size for each transcript...?
+tum.cors=data.with.var%>%group_by(method,cell_type)%>%
+  mutate(corVal=cor(score,Length_in_mm))%>%
+  arrange(desc(abs(corVal)))%>%
+  select(cell_type,method,corVal)%>%distinct()
+
+DT::datatable(tum.cors)
+```
+
+So this is interesting - not all cell types are associated with tumor growth, specifically Mast cells are not. NK cells, macrophages, B cells - they are. Yes the correlation values are as high as we'd like, but it's a start.
+
+```{r,warning=FALSE}
+
+cs.cells=subset(tum.cors,abs(corVal)>0.35)%>%
+    subset(method=='cibersort')%>%ungroup()%>%
+    select(cell_type)%>%unlist()
+
+subset(data.with.var,method=='cibersort')%>%
+    subset(cell_type%in%cs.cells)%>%
+    ggplot()+geom_point(aes(x=score,y=Length_in_mm,col=sex))+facet_grid(cell_type~.)
+
+mc.cells=subset(tum.cors,abs(corVal)>0.35)%>%
+    subset(method=='mcp_counter')%>%ungroup()%>%
+    select(cell_type)%>%unlist()
+
+subset(data.with.var,method=='mcp_counter')%>%
+    subset(cell_type%in%mc.cells)%>%
+    ggplot()+geom_point(aes(x=score,y=Length_in_mm,col=sex))+facet_grid(cell_type~.)
+```
+
+So it seems like the dendritic cells, monocytes, and macrophages seem to have a weak role in tumor growth. 
+
+## Any correlation with itching
+
+Perhaps itching is driving this?
+```{r,warning=FALSE}
+
+subset(data.with.var,method=='cibersort')%>%
+    subset(cell_type%in%cs.cells)%>%
+    ggplot()+geom_point(aes(x=score,y=Length_in_mm,col=Itching))+facet_grid(cell_type~.)
+
+
+subset(data.with.var,method=='mcp_counter')%>%
+    subset(cell_type%in%mc.cells)%>%
+    ggplot()+geom_point(aes(x=score,y=Length_in_mm,col=Itching))+facet_grid(cell_type~.)
+
+```
+
+Doesn't seem to be. But we can do a test to see if Itching is correlated
+```{r, warning=FALSE}
+data.with.var%>%select(Pain,Itching)%>%distinct()
+
+#it seems patients who have pain also have itching, so will only evaluate itching
+sig.vals<-data.with.var%>%
+  spread(key=Itching,value=score)%>%
+  group_by(method,cell_type)%>%
+  mutate(pval=wilcox.test(`TRUE`,`FALSE`)$p.value)%>%
+  select(method,cell_type,pval)%>%distinct()%>%
+  ungroup()
+
+#there are some?!
+DT::datatable(subset(sig.vals,pval<0.05))
+
+subset(data.with.var,method=='mcp_counter')%>%
+  subset(cell_type%in%subset(sig.vals,pval<0.05)$cell_type)%>%
+  ggplot()+geom_boxplot(aes(x=cell_type,y=score,fill=Itching))+scale_y_log10()
+
+```
+
+Last thing to check is that if the Itching phenotype is correlated with the growth.
+
+## Next steps
+
+Not sure what else we can do with these. Some ideas:
+
+* Look to see if these cell types are up-regulated in pNFs that become MPNSTs
+* Look to see if these cell types are different between pNFs and MPNSTs
+

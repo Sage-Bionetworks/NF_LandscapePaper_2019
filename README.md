@@ -12,4 +12,7 @@ Here is a summary of the notebooks contained in the Results folder:
 | [02-TumorDeconvBySex](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/02-TumorDeconvBySex.Rmd)  | A first stab at checking immune annotation predictions to see if the presence/absence of immune cells is any different between sexes.  |
 | [03-DeconvMetaviperCor](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/03-DeconvMetaviperCor.Rmd)  | A comparison of tumor immune scores to metaviper predictions in NF tumors. |
 | [04-GSVA-sex-differences](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/04-GSVA-sex-differences.Rmd)  | Sex differences in GSVA pathway enrichment in NF tumors.  |
-
+| [05-TumorDeconvHeatmaps](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/05-TumorDeconvHeatmaps.Rmd)  | Code for heatmapping the immune deconvolution results of all NF tumors. |
+| [06-CutNFPatVars](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/06-CutNFPatVars.Rmd)  | Plotting/correlating gene expression to cutaneous neurofibroma tumor/patient metadata.  |
+| [07-ImmuneDeconv-LatentVariableCorrelation](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/07-ImmuneDeconv-LatentVariableCorrelation.Rmd)  | Correlation of multiPLIER latent variable expression to immune deconvolution results. |
+| [08-CNFGrowth-ImmuneCor.Rmd](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/08-CNFGrowth-ImmuneCor.Rmd)  | Correlating immune deconvolution results to cutaneous NF tumor/patient metadata (i.e. size, itching).  |

@@ -4,7 +4,7 @@ This repository hosts all the code used to generate analyses and figures for the
 
 ## Notebooks
 
-Here is a summary of the notebooks contained in the Results folder: 
+Here is a summary of the notebooks contained in the Results folder:
 
 | File  | Description |
 | ------------- | ------------- |
@@ -16,3 +16,5 @@ Here is a summary of the notebooks contained in the Results folder:
 | [06-CutNFPatVars](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/06-CutNFPatVars.Rmd)  | Plotting/correlating gene expression to cutaneous neurofibroma tumor/patient metadata.  |
 | [07-ImmuneDeconv-LatentVariableCorrelation](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/07-ImmuneDeconv-LatentVariableCorrelation.Rmd)  | Correlation of multiPLIER latent variable expression to immune deconvolution results. |
 | [08-CNFGrowth-ImmuneCor.Rmd](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/08-CNFGrowth-ImmuneCor.Rmd)  | Correlating immune deconvolution results to cutaneous NF tumor/patient metadata (i.e. size, itching).  |
+| [09-CNFMetadata-LVCor.Rmd](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/09-CNFMetadata-LVCor.Rmd)|Correlation cNF metadata such as itching and tumor size with latent variables |
+| [10-pNF-ProgressionImmune.Rmd](https://github.com/Sage-Bionetworks/NF_LandscapePaper_2019/blob/master/results/10-pNF-ProgressionImmune.Rmd)| Evaluating differences in immune populations between patients that get MPNSTs vs those that do not|

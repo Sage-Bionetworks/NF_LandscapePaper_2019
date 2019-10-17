@@ -1,0 +1,146 @@
+---
+title: "10 - pNF progression in Immune Signatures"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+require(tidyverse)
+```
+
+## Synapse tables with data 
+For this data we are using the JHU biobank data that we've analyzed previously as part of a larger cohort:
+- [Patient Table](https://www.synapse.org/#!Synapse:syn18634454/tables/)
+- [RNA-Seq Table](https://www.synapse.org/#!Synapse:syn20812185/tables/) (actually we don't use this, only the transformed data below:)
+
+We also have Immune Data
+- [Tumor Deconvolution Table](https://www.synapse.org/#!Synapse:syn20710536/tables/)
+
+Let's see if there are any correlations between immune populations and tumor growth.
+
+
+```{r,warning=FALSE}
+pat.tab<-synapser::synTableQuery("SELECT Patient_ID as individualID,Dermal_Neurofibromas,Plexiform_Neurofibromas,MPNST FROM syn18634454")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+pat.samps<-synTableQuery('select distinct specimenID,individualID from syn20812185')$asDataFrame()
+
+imm.tab<-synapser::synTableQuery("SELECT * FROM syn20710536")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))%>%left_join(pat.samps,by='specimenID')
+
+tab<-pat.tab%>%left_join(imm.tab,by='individualID')
+
+tab%>%select(individualID,Plexiform_Neurofibromas,MPNST,specimenID,tumorType)%>%distinct()%>%DT::datatable()
+
+
+
+```
+
+## Compare patients 
+
+First let's look at pNF immune scores bracketed by whether or not patient has MPNSTs
+
+```{r, warning=FALSE}
+tab%>%subset(tumorType=='Plexiform Neurofibroma')%>%
+  subset(method!='xcell')%>%
+  ggplot()+geom_boxplot(aes(x=cell_type,y=score,fill=MPNST))+scale_y_log10()+ theme(axis.text.x = element_text(angle = 90, hjust = 1))+facet_grid(.~method)
+
+```
+
+Interesting! Some cell types look different. Let's try the converse.
+```{r,warning=FALSE}
+
+tab%>%subset(tumorType=='Plexiform Neurofibroma')%>%
+  subset(method!='xcell')%>%
+  ggplot()+geom_boxplot(aes(x=cell_type,y=score,fill=`Dermal_Neurofibromas`))+scale_y_log10()+ theme(axis.text.x = element_text(angle = 90, hjust = 1))+facet_grid(.~method)
+
+tab%>%subset(tumorType=='Malignant Peripheral Nerve Sheath Tumor')%>%
+  subset(method!='xcell')%>%
+  ggplot()+geom_boxplot(aes(x=cell_type,y=score,fill=Plexiform_Neurofibromas))+scale_y_log10()+ theme(axis.text.x = element_text(angle = 90, hjust = 1))+facet_grid(.~method)
+
+```
+
+## Significance tests
+
+For each tumor type, evaluate the significance in differences with/without MPNST development.
+
+```{r,warning=FALSE}
+
+mpnst.res<-tab%>%
+  subset(tumorType=='Plexiform Neurofibroma')%>%
+  spread(key=MPNST,value=score)%>%
+  group_by(method,cell_type)%>%
+  mutate(pval=t.test(Present,Absent)$p.value)%>%
+  select(method,cell_type,pval)%>%distinct()%>%
+  ungroup()%>%
+  mutate(correctedP=p.adjust(pval))
+
+mpnst.res%>%arrange(pval)
+
+```
+
+Not very much is significant, but we can try to plot those for further analysis/research.
+
+```{r, warning=FALSE}
+
+toplot<-subset(mpnst.res,pval<0.1)
+
+subset(tab,tumorType=='Plexiform Neurofibroma')%>%
+  subset(method%in%toplot$method)%>%
+  subset(cell_type%in%toplot$cell_type)%>%
+  ggplot(aes(x=cell_type,y=score,col=MPNST))+
+    geom_boxplot(outlier.shape=NA)+
+    geom_point(position=position_jitterdodge())+
+  facet_grid(.~method)+scale_y_log10()
+  
+```
+
+Because this is only five patients we are limited. What if we look at neurofibromas as well?
+
+## Neurofibromas OR Plexiform Neurofibromas
+
+Here we group neurofibromas with pNFs to see if we get the same result
+
+```{r, warning=FALSE}
+nf.res<-tab%>%
+  subset(tumorType%in%c('Plexiform Neurofibroma','Neurofibroma'))%>%
+  spread(key=MPNST,value=score)%>%
+  group_by(method,cell_type)%>%
+  mutate(pval=t.test(Present,Absent)$p.value)%>%
+  select(method,cell_type,pval)%>%distinct()%>%
+  ungroup()%>%
+  mutate(correctedP=p.adjust(pval))
+
+nf.res%>%arrange(pval)
+
+toplot<-subset(nf.res,pval<0.1)
+
+for(method in c('cibersort','mcp_counter')){
+ 
+   nplot<-toplot[which(toplot$method==method),]##subset fails here,
+  
+  p<-tab%>%subset(tumorType%in%c('Plexiform Neurofibroma','Neurofibroma'))%>%
+  subset(method==method)%>%
+  subset(cell_type%in%nplot$cell_type)%>%
+  ggplot(aes(x=cell_type,y=score,col=MPNST))+
+    geom_boxplot(outlier.shape=NA)+
+    geom_point(position=position_jitterdodge(),aes(shape=tumorType,group=MPNST))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    ggtitle(method)
+  if(method=='cibersort')
+    p<-p+scale_y_log10()
+  print(p)
+}
+
+```
+
+## Next steps
+We should look into the information about this, I'm not sure if it's prognostic or not. 

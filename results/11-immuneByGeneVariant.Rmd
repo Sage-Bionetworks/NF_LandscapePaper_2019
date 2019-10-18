@@ -48,8 +48,8 @@ top.genes=tab%>%group_by(tumorType)%>%
       group_by(tumorType,Hugo_Symbol)%>%
     mutate(numMutated=n_distinct(specimenID))%>%
     ungroup()%>%
-  subset(numMutated>1)%>%
-      subset(numMutated<(numSamps))%>%
+  subset(numMutated>3)%>%
+      subset(numMutated<(numSamps-1))%>%
   select(tumorType,Hugo_Symbol,numSamps,numMutated)%>%distinct()
 
 gene.count=top.genes%>%group_by(tumorType)%>%mutate(numGenes=n_distinct(Hugo_Symbol))%>%select(tumorType,numGenes)%>%distinct()
@@ -63,113 +63,67 @@ Ok, we have some genes and counts that we can look at!
 Now we can loop through every tumor type and gene
 
 ```{r, warning=FALSE}
+red.genes<-c("NF1","SUZ12","CDKN2A","EED")##for testing
 
-vals<-tab%>%
+vals<-tab%>%#subset(Hugo_Symbol%in%red.genes)%>%
     mutate(mutated=ifelse(is.na(IMPACT),'WT','Mutated'))%>%
-  spread(key=Hugo_Symbol,value='mutated',fill='WT')%>%
-  gather()%>%
-   group_by(cell_type,method,tumorType)%>%
-   select(score,Hugo_Symbol,specimenID,mutated)%>%
-  group_by(Hugo_Symbol)%>%
-      mutate(numVals=n_distinct(mutated))%>%
-      subset(numVals==2)
+  select(cell_type,method,tumorType,score,Hugo_Symbol,specimenID,mutated)%>%
+  distinct()%>%
+  spread(key=Hugo_Symbol,value='mutated',fill='WT')
+
+counts<-vals%>%
+  gather(key=gene,value=status,-c(cell_type,method,tumorType,score,specimenID))%>% 
+    select(cell_type,method,tumorType,score,gene,specimenID,status)%>%
+    group_by(cell_type,method,tumorType,gene)%>%
+    mutate(numVals=n_distinct(status))%>%
+    subset(numVals==2)%>%ungroup()
 
 #so now we have only 
-with.sig<-vals%>%
-  mutate(pval=t.test(score~mutated)$p.value)
-#   split(.$Hugo_Symbol)
+with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
+    group_by(method,cell_type,gene)%>%
+  mutate(pval=t.test(score~status)$p.value)%>%ungroup()%>%
+  group_by(cell_type,method)%>%
+  mutate(corP=p.adjust(pval))%>%ungroup()%>%
+  select(cell_type,method,gene,pval,corP)%>%distinct()
 
-#    by_slice(t.test(score~mutated)$p.value)
+sig.vals<-subset(with.sig,corP<0.3)
 
-#%>%
-#    spread(key=Hugo_Symbol,value='mutated',fill='WT')
-
-pvals<-vals%>%group_by(cell_type,method,tumorType)
-
-for(g in unique(tab$Hugo_Symbol)){
-  
-}
-```
-
-Interesting! Some cell types look different. Let's try the converse.
-```{r,warning=FALSE}
-
+DT::datatable(sig.vals)
 
 ```
 
-## Significance tests
-
-For each tumor type, evaluate the significance in differences with/without MPNST development.
+Interesting! Some genes actually pass p-value correction. What do they look like? Here let's write the messiest possible code to print.
 
 ```{r,warning=FALSE}
-
-mpnst.res<-tab%>%
-  subset(tumorType=='Plexiform Neurofibroma')%>%
-  spread(key=MPNST,value=score)%>%
-  group_by(method,cell_type)%>%
-  mutate(pval=t.test(Present,Absent)$p.value)%>%
-  select(method,cell_type,pval)%>%distinct()%>%
-  ungroup()%>%
-  mutate(correctedP=p.adjust(pval))
-
-mpnst.res%>%arrange(pval)
-
-```
-
-Not very much is significant, but we can try to plot those for further analysis/research.
-
-```{r, warning=FALSE}
-
-toplot<-subset(mpnst.res,pval<0.1)
-
-subset(tab,tumorType=='Plexiform Neurofibroma')%>%
-  subset(method%in%toplot$method)%>%
-  subset(cell_type%in%toplot$cell_type)%>%
-  ggplot(aes(x=cell_type,y=score,col=MPNST))+
-    geom_boxplot(outlier.shape=NA)+
-    geom_point(position=position_jitterdodge())+
-  facet_grid(.~method)+scale_y_log10()
-  
-```
-
-Because this is only five patients we are limited. What if we look at neurofibromas as well?
-
-## Neurofibromas OR Plexiform Neurofibromas
-
-Here we group neurofibromas with pNFs to see if we get the same result
-
-```{r, warning=FALSE}
-nf.res<-tab%>%
-  subset(tumorType%in%c('Plexiform Neurofibroma','Neurofibroma'))%>%
-  spread(key=MPNST,value=score)%>%
-  group_by(method,cell_type)%>%
-  mutate(pval=t.test(Present,Absent)$p.value)%>%
-  select(method,cell_type,pval)%>%distinct()%>%
-  ungroup()%>%
-  mutate(correctedP=p.adjust(pval))
-
-nf.res%>%arrange(pval)
-
-toplot<-subset(nf.res,pval<0.1)
-
+##i am sooo not proud of this horrible code. apologies!!!
 for(method in c('cibersort','mcp_counter')){
- 
-   nplot<-toplot[which(toplot$method==method),]##subset fails here,
-  
-  p<-tab%>%subset(tumorType%in%c('Plexiform Neurofibroma','Neurofibroma'))%>%
-  subset(method==method)%>%
-  subset(cell_type%in%nplot$cell_type)%>%
-  ggplot(aes(x=cell_type,y=score,col=MPNST))+
+  ##first let's reduce the counts and signifiance measures
+  rcounts<-subset(counts, method==method)
+  nplot<-sig.vals[which(sig.vals$method==method),]##subset fails here,      
+
+  for(ct in unique(nplot$cell_type)){
+    tplot<-nplot[which(nplot$cell_type==ct),]
+    if(nrow(tplot)==0)
+      next
+    print(tplot)
+    p<-rcounts%>%
+    subset(cell_type==ct)%>%
+    subset(gene%in%tplot$gene)%>%
+    ggplot(aes(x=gene,y=score,col=status))+
     geom_boxplot(outlier.shape=NA)+
-    geom_point(position=position_jitterdodge(),aes(shape=tumorType,group=MPNST))+
+    geom_point(position=position_jitterdodge(),aes(group=status))+
     theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-    ggtitle(method)
-  if(method=='cibersort')
-    p<-p+scale_y_log10()
-  print(p)
+    ggtitle(paste(method,ct,'predictions'))
+    if(method=='cibersort')
+      p<-p+scale_y_log10()
+    print(p)
+  }
 }
 
+
 ```
+
+
 
 ## Next steps
-We should look into the information about this, I'm not sure if it's prognostic or not. 
+We should look into each individual tumor type, but I was having trouble executing the proper group by's and gave up. Happy for someone else to give it a whirl

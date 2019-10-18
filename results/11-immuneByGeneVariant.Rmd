@@ -1,0 +1,175 @@
+---
+title: "11 - Immune Phenotype by genetic mutation"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+require(tidyverse)
+```
+
+## Synapse tables with data 
+For this data we are using any data for which there are gene variants (cNFs, pNFs, MPNSTs):
+- [Exome-Seq variants](https://www.synapse.org/#!Synapse:syn20554939/tables/)
+- [WGS Variants](https://www.synapse.org/#!Synapse:syn20551862/tables/) 
+
+We also have Immune Data
+- [Tumor Deconvolution Table](https://www.synapse.org/#!Synapse:syn20710536/tables/)
+
+Let's see if there are any correlations between specific variants and immune populations. First we collect all the data and find 'recurrent' mutations. Currently we're focusing on mutations that occur in at least 3 samples. 
+
+
+```{r,warning=FALSE}
+
+wgs.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT FROM syn20551862")$asDataFrame()
+exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT FROM syn20554939")$asDataFrame()
+
+all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT'),
+    select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT'))
+
+imm.tab<-synapser::synTableQuery("SELECT * FROM syn20710536")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+samps<-intersect(imm.tab$specimenID,all.vars$specimenID)
+
+tab<-imm.tab%>%subset(specimenID%in%samps)%>%
+    left_join(all.vars,by='specimenID')
+
+top.genes=tab%>%group_by(tumorType)%>%
+  mutate(numSamps=n_distinct(specimenID))%>%
+      group_by(tumorType,Hugo_Symbol)%>%
+    mutate(numMutated=n_distinct(specimenID))%>%
+    ungroup()%>%
+  subset(numMutated>1)%>%
+      subset(numMutated<(numSamps))%>%
+  select(tumorType,Hugo_Symbol,numSamps,numMutated)%>%distinct()
+
+gene.count=top.genes%>%group_by(tumorType)%>%mutate(numGenes=n_distinct(Hugo_Symbol))%>%select(tumorType,numGenes)%>%distinct()
+DT::datatable(gene.count)
+```
+
+Ok, we have some genes and counts that we can look at! 
+
+## Test significance of each gene/immune population
+
+Now we can loop through every tumor type and gene
+
+```{r, warning=FALSE}
+
+vals<-tab%>%
+    mutate(mutated=ifelse(is.na(IMPACT),'WT','Mutated'))%>%
+  spread(key=Hugo_Symbol,value='mutated',fill='WT')%>%
+  gather()%>%
+   group_by(cell_type,method,tumorType)%>%
+   select(score,Hugo_Symbol,specimenID,mutated)%>%
+  group_by(Hugo_Symbol)%>%
+      mutate(numVals=n_distinct(mutated))%>%
+      subset(numVals==2)
+
+#so now we have only 
+with.sig<-vals%>%
+  mutate(pval=t.test(score~mutated)$p.value)
+#   split(.$Hugo_Symbol)
+
+#    by_slice(t.test(score~mutated)$p.value)
+
+#%>%
+#    spread(key=Hugo_Symbol,value='mutated',fill='WT')
+
+pvals<-vals%>%group_by(cell_type,method,tumorType)
+
+for(g in unique(tab$Hugo_Symbol)){
+  
+}
+```
+
+Interesting! Some cell types look different. Let's try the converse.
+```{r,warning=FALSE}
+
+
+```
+
+## Significance tests
+
+For each tumor type, evaluate the significance in differences with/without MPNST development.
+
+```{r,warning=FALSE}
+
+mpnst.res<-tab%>%
+  subset(tumorType=='Plexiform Neurofibroma')%>%
+  spread(key=MPNST,value=score)%>%
+  group_by(method,cell_type)%>%
+  mutate(pval=t.test(Present,Absent)$p.value)%>%
+  select(method,cell_type,pval)%>%distinct()%>%
+  ungroup()%>%
+  mutate(correctedP=p.adjust(pval))
+
+mpnst.res%>%arrange(pval)
+
+```
+
+Not very much is significant, but we can try to plot those for further analysis/research.
+
+```{r, warning=FALSE}
+
+toplot<-subset(mpnst.res,pval<0.1)
+
+subset(tab,tumorType=='Plexiform Neurofibroma')%>%
+  subset(method%in%toplot$method)%>%
+  subset(cell_type%in%toplot$cell_type)%>%
+  ggplot(aes(x=cell_type,y=score,col=MPNST))+
+    geom_boxplot(outlier.shape=NA)+
+    geom_point(position=position_jitterdodge())+
+  facet_grid(.~method)+scale_y_log10()
+  
+```
+
+Because this is only five patients we are limited. What if we look at neurofibromas as well?
+
+## Neurofibromas OR Plexiform Neurofibromas
+
+Here we group neurofibromas with pNFs to see if we get the same result
+
+```{r, warning=FALSE}
+nf.res<-tab%>%
+  subset(tumorType%in%c('Plexiform Neurofibroma','Neurofibroma'))%>%
+  spread(key=MPNST,value=score)%>%
+  group_by(method,cell_type)%>%
+  mutate(pval=t.test(Present,Absent)$p.value)%>%
+  select(method,cell_type,pval)%>%distinct()%>%
+  ungroup()%>%
+  mutate(correctedP=p.adjust(pval))
+
+nf.res%>%arrange(pval)
+
+toplot<-subset(nf.res,pval<0.1)
+
+for(method in c('cibersort','mcp_counter')){
+ 
+   nplot<-toplot[which(toplot$method==method),]##subset fails here,
+  
+  p<-tab%>%subset(tumorType%in%c('Plexiform Neurofibroma','Neurofibroma'))%>%
+  subset(method==method)%>%
+  subset(cell_type%in%nplot$cell_type)%>%
+  ggplot(aes(x=cell_type,y=score,col=MPNST))+
+    geom_boxplot(outlier.shape=NA)+
+    geom_point(position=position_jitterdodge(),aes(shape=tumorType,group=MPNST))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    ggtitle(method)
+  if(method=='cibersort')
+    p<-p+scale_y_log10()
+  print(p)
+}
+
+```
+
+## Next steps
+We should look into the information about this, I'm not sure if it's prognostic or not. 

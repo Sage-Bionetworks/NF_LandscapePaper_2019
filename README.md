@@ -20,3 +20,5 @@ Here is a summary of the notebooks contained in the Results folder:
 | [08-CNFGrowth-ImmuneCor](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/08-CNFGrowth-ImmuneCor.html)  | Correlating immune deconvolution results to cutaneous NF tumor/patient metadata (i.e. size, itching).  |
 | [09-CNFMetadata-LVCor](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/09-CNFMetadata-LVCor.html)|Correlation cNF metadata such as itching and tumor size with latent variables |
 | [10-pNF-ProgressionImmune](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/10-pNF-ProgressionImmune.html)| Evaluating differences in immune populations between patients that get MPNSTs vs those that do not|
+| [11-immuneByGeneVariant](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/11-immuneByGeneVariant.html)|Testing gene mutations for significant alterations in immune populations| 
+

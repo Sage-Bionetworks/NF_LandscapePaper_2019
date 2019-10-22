@@ -1,0 +1,91 @@
+---
+title: "11 - Cutaneous Neurofibroma Tumor Metadata and LV Correlation"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(synapser)
+synLogin()
+library(tidyverse)
+library(feather)
+library(recount)
+```
+
+# Get Data
+
+This is nearly entirely based on the code in notebook 08. 
+
+Get the recount model, which is from [here](https://figshare.com/articles/recount_rpkm_RData/5716033/4) - we duplicated this on Synapse for ease of programmatic access.
+
+We also have latent variable expression analysis data
+- [Latent Variable Feather File](https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather/)
+
+Let's see if there are any correlations between LV expression and tumor size and patient age.
+
+
+```{r,warning=FALSE}
+
+fn <- tempfile(pattern = "", fileext = ".feather")
+download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = fn)
+mp_res<-read_feather(fn) %>% filter(sex != "NA", isCellLine != "TRUE")
+
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+
+
+```
+
+
+```{r}
+
+itching_lvs <- c("136,PID_INTEGRIN1_PATHWAY",
+                 "447,KEGG_LYSOSOME",
+                 "LV 806",
+                 "750,KEGG_RIBOSOME",
+                 "13,REACTOME_GLUCOSE_METABOLISM")
+                 
+
+tidy_plier_data <- plier_model$B %>% 
+  as_tibble(rownames = "lv") %>% 
+  filter(lv %in% itching_lvs) %>% 
+  gather(sample, value, -lv)
+
+plots <- tidy_plier_data %>% 
+  group_by(lv) %>% 
+  ggplot() +
+  geom_histogram(aes(x=value, fill = value>quantile(value, 0.95))) +
+  facet_wrap(~lv)
+
+plots
+
+```
+
+```{r}
+
+meta <- recount::all_metadata() %>% 
+  as_tibble() %>% 
+  select(project, run, sharq_beta_tissue, sharq_beta_cell_type, title,
+         characteristics) %>% 
+  mutate(sample = paste0(project,'.',run))
+
+mp_res_itch <- filter(mp_res, latent_var %in% itching_lvs) %>% 
+  dplyr::rename(lv = latent_var, sample = specimenID) %>% 
+  select(sample, lv, value) %>% 
+  bind_rows(tidy_plier_data) %>% 
+  group_by(lv) %>% 
+  spread(sample, value)
+
+
+
+```
+
+
+
+

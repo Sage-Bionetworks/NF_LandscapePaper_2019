@@ -31,7 +31,7 @@ source('https://raw.githubusercontent.com/greenelab/multi-plier/7c56a2867f9f08f7
 plier_model <- readr::read_rds(synGet("syn18689545")$path) ## Provided by the CCDL (Jaclyn Taroni, Casey Greene, et al)
 
 `%>%` <- magrittr::`%>%`
-mult
+
 ```
 
 ## Get expression data
@@ -40,7 +40,8 @@ mult
 tx2gene_df <- synGet('syn18482848')$path %>% readr::read_tsv()
 
 
-metadata <- synTableQuery("SELECT * FROM syn21046851 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'")
+metadata <- synTableQuery("SELECT * FROM syn21046851", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'")
+
 
 metadata$isCellLine <- toupper(metadata$isCellLine)
 
@@ -148,7 +149,7 @@ colnames(plier_loadings) <- rownames(mp_res)
 
 plier_cor <- cor(plier_loadings) 
 
-interesting_lvs <- mp_res_tidy_filt$latent_var 
+interesting_lvs <- mp_res_tidy$latent_var 
 
 plier_cor_tidy <- plier_cor %>% 
   as.data.frame() %>% 

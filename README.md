@@ -21,4 +21,4 @@ Here is a summary of the notebooks contained in the Results folder:
 | [09-CNFMetadata-LVCor](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/09-CNFMetadata-LVCor.html)|Correlation cNF metadata such as itching and tumor size with latent variables |
 | [10-pNF-ProgressionImmune](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/10-pNF-ProgressionImmune.html)| Evaluating differences in immune populations between patients that get MPNSTs vs those that do not|
 | [11-immuneByGeneVariant](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/11-immuneByGeneVariant.html)|Testing gene mutations for significant alterations in immune populations| 
-
+| [12-Interesting-LVs-in-recount2](https://sage-bionetworks.github.io/NF_LandscapePaper_2019/results/12-Interesting-LVs-in-recount2.html)|We looked for interesting latent variables, and tried to samples in the recount2 data that were correlated to the NF LV expression. We also looked for interesting LVs that are different between pNF and MPNST.| 

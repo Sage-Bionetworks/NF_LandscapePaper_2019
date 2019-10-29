@@ -15,7 +15,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(synapser)
 synLogin()
 library(tidyverse)
-library(feather)
 library(recount)
 ```
 

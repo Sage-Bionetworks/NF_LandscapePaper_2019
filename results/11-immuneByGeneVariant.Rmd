@@ -43,6 +43,8 @@ samps<-intersect(imm.tab$specimenID,all.vars$specimenID)
 tab<-imm.tab%>%subset(specimenID%in%samps)%>%
     left_join(all.vars,by='specimenID')
 
+tab<-subset(tab,!tumorType%in%c('Other','High Grade Glioma','Low Grade Glioma'))
+
 top.genes=tab%>%group_by(tumorType)%>%
   mutate(numSamps=n_distinct(specimenID))%>%
       group_by(tumorType,Hugo_Symbol)%>%

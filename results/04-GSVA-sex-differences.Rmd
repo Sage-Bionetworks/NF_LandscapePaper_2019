@@ -33,7 +33,8 @@ path.tidied=path.data%>%gather(key='specimenID',value='score',-pathName)
 tab<-path.tidied%>%left_join(gene.ex.data,by='specimenID')
 
 
-tab<-subset(tab,diagnosis=='Neurofibromatosis 1')
+tab<-subset(tab,diagnosis=='Neurofibromatosis 1')%>%
+  subset(!tumorType%in%c('High Grade Glioma','Low Grade Glioma'))
 ```
 
 Now we can 

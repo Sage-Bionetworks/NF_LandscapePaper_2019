@@ -28,6 +28,8 @@ tab<-subset(tab,diagnosis=='Neurofibromatosis 1')
 tab$tumorType[which(tab$tumorType%in%c("Ependymoma","Ganglioglioma"))]<-'Other'
 
 tab$tumorType[which(tab$tumorType=="Malignant peripheral nerve sheath tumor")]<-"Malignant Peripheral Nerve Sheath Tumor"
+
+tab<-subset(tab,!tumorType%in%c('Other','High Grade Glioma','Low Grade Glioma'))
 ```
 
 ## Reshape the table
@@ -37,7 +39,7 @@ tab$tumorType[which(tab$tumorType=="Malignant peripheral nerve sheath tumor")]<-
 annotes=tab%>%select(specimenID,tumorType,sex,study)%>%distinct()
 rownames(annotes)<-annotes$specimenID
 
-mat<-tab%>%subset(tumorType!='Other')%>%subset(method!='xcell')%>%
+mat<-tab%>%subset(method!='xcell')%>%
   select(specimenID,score,method,cell_type)%>%
   spread(key=specimenID,value=score)
 

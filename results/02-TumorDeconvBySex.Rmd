@@ -25,15 +25,17 @@ tab<-synapser::synTableQuery("select * from syn20710536")$asDataFrame()
 
 tab<-subset(tab,diagnosis=='Neurofibromatosis 1')
 
-tab$tumorType[which(tab$tumorType%in%c("Ependymoma","Ganglioglioma"))]<-'Other'
+tab$tumorType[which(tab$tumorType%in%c("Ependymoma","Ganglioglioma","Low Grade Glioma","High Grade Glioma"))]<-'Other'
 
 tab$tumorType[which(tab$tumorType=="Malignant peripheral nerve sheath tumor")]<-"Malignant Peripheral Nerve Sheath Tumor"
+
+tab<-subset(tab,tumorType!='Other')
 ```
 
 ## Check tumor-specific sex differences
 ```{r}
 ##now what do we see on a tissue level? 
-res.c<-tab%>%subset(tumorType!='Other')%>%subset(method!='xcell')%>%
+res.c<-tab%>%subset(method!='xcell')%>%
   spread(key=sex,value=score)%>%
   group_by(method,tumorType,cell_type)%>%
   mutate(pval=t.test(female,male)$p.value)%>%
@@ -42,7 +44,8 @@ res.c<-tab%>%subset(tumorType!='Other')%>%subset(method!='xcell')%>%
   mutate(correctedP=p.adjust(pval))
 
 sigs<-subset(res.c,pval<0.05)
-sigs
+
+DT::datatable(sigs)
 ```
 
 There are numerous significant cell-type/tumor combinations.

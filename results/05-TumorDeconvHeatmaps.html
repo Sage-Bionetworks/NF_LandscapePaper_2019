@@ -12,7 +12,7 @@
 
 <meta name="author" content="Sara Gosline" />
 
-<meta name="date" content="2019-10-07" />
+<meta name="date" content="2019-10-29" />
 
 <title>05-Tumor Deconvolution Plots</title>
 
@@ -1289,7 +1289,7 @@ window.initializeCodeFolding = function(show) {
 
     // create a collapsable div to wrap the code in
     var div = $('<div class="collapse r-code-collapse"></div>');
-    if (show)
+    if (show || $(this)[0].classList.contains('fold-show'))
       div.addClass('in');
     var id = 'rcode-643E0F36' + currentIndex++;
     div.attr('id', id);
@@ -1405,7 +1405,6 @@ code {
 }
 img {
   max-width:100%;
-  height: auto;
 }
 .tabbed-pane {
   padding-top: 12px;
@@ -1578,7 +1577,7 @@ div.tocify {
 
 <h1 class="title toc-ignore">05-Tumor Deconvolution Plots</h1>
 <h4 class="author">Sara Gosline</h4>
-<h4 class="date">2019-10-07</h4>
+<h4 class="date">2019-10-29</h4>
 
 </div>
 
@@ -1587,13 +1586,17 @@ div.tocify {
 <h2>Landscape of immune cells</h2>
 <p>Interesting to plot all the tumors by immune score.</p>
 <p>First get the tumor de-convolution results for NF1 tumors from synapse, combine non-standard tumor types and handle basic renaming of variables.</p>
-<pre class="r"><code>tab&lt;-synapser::synTableQuery(&quot;select * from syn20710536&quot;)$asDataFrame()
-
-tab&lt;-subset(tab,diagnosis==&#39;Neurofibromatosis 1&#39;)
+<pre class="r"><code>tab&lt;-synapser::synTableQuery(&quot;select * from syn20710536&quot;)$asDataFrame()</code></pre>
+<pre><code>## 
+ [####################]100.00%   1/1   Done...    
+Downloading  [####################]100.00%   1.1MB/1.1MB (2.4MB/s) Job-99120795986188254388168057.csv Done...</code></pre>
+<pre class="r"><code>tab&lt;-subset(tab,diagnosis==&#39;Neurofibromatosis 1&#39;)
 
 tab$tumorType[which(tab$tumorType%in%c(&quot;Ependymoma&quot;,&quot;Ganglioglioma&quot;))]&lt;-&#39;Other&#39;
 
-tab$tumorType[which(tab$tumorType==&quot;Malignant peripheral nerve sheath tumor&quot;)]&lt;-&quot;Malignant Peripheral Nerve Sheath Tumor&quot;</code></pre>
+tab$tumorType[which(tab$tumorType==&quot;Malignant peripheral nerve sheath tumor&quot;)]&lt;-&quot;Malignant Peripheral Nerve Sheath Tumor&quot;
+
+tab&lt;-subset(tab,!tumorType%in%c(&#39;Other&#39;,&#39;High Grade Glioma&#39;,&#39;Low Grade Glioma&#39;))</code></pre>
 </div>
 <div id="reshape-the-table" class="section level2">
 <h2>Reshape the table</h2>
@@ -1602,7 +1605,7 @@ tab$tumorType[which(tab$tumorType==&quot;Malignant peripheral nerve sheath tumor
 annotes=tab%&gt;%select(specimenID,tumorType,sex,study)%&gt;%distinct()
 rownames(annotes)&lt;-annotes$specimenID
 
-mat&lt;-tab%&gt;%subset(tumorType!=&#39;Other&#39;)%&gt;%subset(method!=&#39;xcell&#39;)%&gt;%
+mat&lt;-tab%&gt;%subset(method!=&#39;xcell&#39;)%&gt;%
   select(specimenID,score,method,cell_type)%&gt;%
   spread(key=specimenID,value=score)</code></pre>
 </div>

@@ -1,0 +1,105 @@
+---
+title: "Tumor type association with immune expression in NF tumors"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+
+Here, we are evaluating the expression of immune cell types in NF tumors as they pertain to the type of the tumor. 
+# Import packages
+
+First, import packages to process and plot the data. 
+
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(stringr)
+library(ggbeeswarm)
+library(synapser)
+synLogin()
+deconv_scores='syn20710536'
+dtab<-synapser::synTableQuery(paste('select * from',deconv_scores))$asDataFrame()%>%
+  rename(immScore='score')
+
+combined<-subset(dtab,tumorType%in%c('Cutaneous Neurofibroma','Plexiform Neurofibroma','Neurofibroma','Malignant Peripheral Nerve Sheath Tumor'))
+
+
+```
+
+# Significance testing
+
+We already have the expression of the immune signatures in these tumors. Let's perform a kruskall-wallis test and adjust the resulting p-value based on the expression of aimmune cell type.
+
+Then we take the tidy data frame of immune data, group by the cell type and tumor type, nest the dataframe based on those groups, and then calculate the p-value for each nested data frame. After making `tumorType` into a factor I was able to identify significant cell types that passed a BH correction test less than 0.05.
+
+```{r message=FALSE, warning=FALSE}
+
+combined$tumorType<-as.factor(combined$tumorType)
+res_model <- combined%>%subset(method!='xcell')%>%
+  group_by(method,cell_type) %>% 
+  nest() %>% 
+  mutate(pval= map(data,function(x){
+    kruskal.test(formula = immScore~tumorType, data = x)$p.value
+  }) %>% 
+           as.numeric %>% 
+           signif(., digits = 3)) %>% 
+  mutate(p_adj = p.adjust(pval, n = nrow(.), method = "BH")) %>% 
+  filter(p_adj < 0.05) %>% 
+  arrange(p_adj )
+
+#tidy <- plier_loadings_df %>% 
+#      tibble::rownames_to_column('gene') %>%
+#  gather(lv, loading, -gene) %>% 
+#  filter(loading > 0)
+
+ 
+res_plot <- res_model %>% 
+  mutate(title = paste0(method,':',cell_type," p-value = ", pval) %>% 
+           str_wrap(., width = 40)) %>% 
+  mutate(plots = map2(title, data, function(.x,.y){
+      ggplot(data = .y %>% mutate(tumorType = str_wrap(tumorType, width = 15))) +
+      geom_boxplot(aes(x = tumorType, y = immScore, fill = tumorType)) +
+      geom_beeswarm(aes(x = tumorType, y = immScore)) +
+      scale_y_log10()+
+      ggtitle(.x) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5))
+  })) #%>% 
+ # mutate(plots_loading = map(latent_var, function(x){
+#    ggplot(tidy %>% filter(lv == x) %>% top_n(30, loading)) +
+#    geom_bar(aes(x=reorder(gene, -loading), y=loading, fill = gene %in% drug_targets$gene), stat = "identity") +
+#    scale_fill_discrete(name="Druggable") +
+#    theme_bw() +
+#    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+#      labs(x = "Gene", y = "LV Loading")
+#  }))
+
+DT::datatable(res_model %>% select(-data))
+```
+
+# Plots 
+
+### Tumor Specific 
+
+Here are the immune types  where p < 0.2 when grouping by tumor type.
+
+```{r}
+
+#plots <- map(res_plot$plots,function(.x){#res_plot$plots_loading,function(.x,.y){
+#    combo_plot <- gridExtra::grid.arrange(.x)#,.y)
+#})
+
+res_plot$plots
+```
+

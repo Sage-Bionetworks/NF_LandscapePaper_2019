@@ -1,0 +1,94 @@
+---
+title: "04-GSVA Sex Differences"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+### Get gene expression, GSVA analysis
+
+We ahve previously computed GSVA and stored, we just need to get expression data
+to get clinical variables
+
+```{r setup, include=FALSE,warning=FALSE}
+#test sex differences in NF
+
+require(synapser)
+synLogin()
+require(tidyverse)
+
+path.data<-read.csv(synGet("syn20684776")$path,check.names=F)
+gene.ex.data<-synTableQuery("select distinct specimenID,tumorType,diagnosis,sex,isCellLine from syn20449214")$asDataFrame()
+
+
+gene.ex.data$specimenID=sapply(gene.ex.data$specimenID,function(x) gsub('Plexiform ','p',gsub('Neurofibroma','NF',gsub('Malignant Peripheral Nerve Sheath Tumor','MPNST',x))))
+gene.ex.data$sex=tolower(gene.ex.data$sex)
+colnames(path.data)[1]='pathName'
+path.tidied=path.data%>%gather(key='specimenID',value='score',-pathName)
+
+tab<-path.tidied%>%left_join(gene.ex.data,by='specimenID')
+
+
+tab<-subset(tab,diagnosis=='Neurofibromatosis 1')%>%
+  subset(!tumorType%in%c('High Grade Glioma','Low Grade Glioma'))
+```
+
+Now we can 
+
+```{r,warning=FALSE}
+
+##now what do we see on a tissue level? 
+res<-tab%>%
+  spread(key=sex,value=score)%>%
+  group_by(pathName)%>%
+  mutate(pval=t.test(female,male)$p.value)%>%
+  select(pathName,pval)%>%distinct()%>%
+  ungroup()%>%
+  mutate(correctedP=p.adjust(pval))
+
+sigs.all<-subset(res,correctedP<0.05)
+sigs.all
+```
+
+```{r,warning=FALSE}
+##now what do we see on a tissue level? 
+res.c<-tab%>%
+  spread(key=sex,value=score)%>%
+  group_by(pathName,tumorType)%>%
+  mutate(pval=t.test(female,male)$p.value)%>%
+  select(pathName,pval,tumorType)%>%distinct()%>%
+  ungroup()%>%
+  group_by(tumorType)%>%
+  mutate(correctedP=p.adjust(pval))
+
+sigs<-subset(res.c,correctedP<0.05)
+sigs
+```
+
+Now we have a lot of significant pathways.
+
+```{r,warning=FALSE}
+for(ct in unique(sigs$pathName)){
+  sigs.t=subset(sigs,pathName==ct)
+  tab.t=subset(tab,pathName%in%sigs.t$pathName)%>%subset(pathName==ct)
+   p<-ggplot(tab.t,palette='jco')+geom_boxplot(aes(x=pathName,fill=sex,y=score))+facet_grid(.~tumorType)+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  print(p)
+
+}
+```
+
+```{r,warning=FALSE}
+#for(meth in unique(sigs$pathName)){
+#  sigs.t=subset(sigs,pathName==meth)
+#  for(tu in sigs.t$tumorType){
+#  tab.t=subset(tab,tumorType==tu)%>%
+#      subset(pathName==meth)
+ #  p<-ggplot(tab.t,palette='jco')+geom_boxplot(aes(x=tumorType,fill=sex,y=score))+theme(axis.text.x = element_text(angle = 90, hjust = 1))+scale_y_log10()+ggtitle(paste(meth,'scores'))
+#   print(p)
+ # }
+#}
+```

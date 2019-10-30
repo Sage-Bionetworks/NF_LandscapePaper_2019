@@ -1,0 +1,107 @@
+---
+title: "03-Deconv Metaviper Correlation"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+##compare tumor immune scores to metaviper predictions
+
+require(synapser)
+synLogin()
+require(tidyverse)
+
+deconv_scores='syn20710536'
+metaviper_scores='syn20503291'
+```
+
+### Immune predictions correlated with metaviper protein activity
+
+First we get the metaviper predictions and deconvolution predictions from Synapse
+
+```{r, warning=FALSE}
+#get immune predictions
+dtab<-synapser::synTableQuery(paste('select * from',deconv_scores))$asDataFrame()%>%
+  rename(immScore='score')
+
+##get metaviper scores
+mtab<-read.csv(synapser::synGet(metaviper_scores)$path,sep='\t')%>%
+  rename(specimenID='sample')%>%
+  rename(protScore='counts')
+
+
+dtab<-subset(dtab,method!='xcell')
+combined=dtab%>%select(c(cell_type,method,specimenID,immScore))%>%
+  left_join(mtab,by='specimenID')
+
+combined<-subset(combined,!conditions%in%c('High Grade Glioma','Low Grade Glioma'))
+```
+
+Then we can compute the correlation of each cell type measurement with each protein
+```{r, warning=FALSE}
+corVals=combined%>%group_by(cell_type,gene,method)%>%summarize(corVal=cor(immScore,protScore,use='pairwise.complete.obs'))
+
+corVals
+```
+
+### Plotting protein correlations
+We are interested in particular protein signaling activity that might give rise to specific immune phonetypes.
+
+```{r, warning=FALSE}
+##now how do we bracket them?
+##plot correlation distributions by cell type and method. 
+require(ggplot2)
+p<-ggplot(corVals)+geom_boxplot(aes(x=cell_type,y=corVal,fill=method))+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ggtitle("Correlation of metaviper proteins with predicted cell type")
+print(p)
+```
+
+There are some proteins that show up as highly correlated. By choosing a threshold, we can evaluate what they are in more detail.
+
+```{r, warning=FALSE}
+corthresh=0.65
+
+##now filter to the cell types with correlated proteins
+cor_cell_types=subset(corVals,corVal>corthresh)%>%ungroup()%>%
+  select(cell_type,method)%>%unique()
+print(paste('we found',nrow(cor_cell_types),'cell types with some protein correlation greater than',corthresh))
+
+
+apply(cor_cell_types,1,function(x){
+  ct=x[['cell_type']]
+  m=x[['method']]
+
+  #for each gene and cell type
+  genes=subset(corVals,cell_type==ct)%>%
+        subset(corVal>corthresh)%>%
+    subset(method==m)%>%arrange(desc(corVal))%>%
+      ungroup()
+
+    if(nrow(genes)>12){
+    new.corthresh=format(genes$corVal[15],digits=3)
+    genes=genes[1:12,]
+  }else{
+    new.corthresh=corthresh
+  }
+
+  scores=subset(combined,gene%in%genes$gene)%>%subset(cell_type==ct)%>%subset(method==m)
+
+  p2<- ggplot(scores)+
+      geom_point(aes(x=immScore,y=protScore,
+          col=gene,shape=conditions))+
+    scale_x_log10()+
+      ggtitle(paste(m,'predictions of',ct,'correlation >',new.corthresh))
+  print(p2)
+ # ggsave(paste0(m,'predictions of',gsub(" ","",gsub("/","",ct)),'cor',new.corthresh,'.pdf'))
+})
+
+#parentid='syn20710537'
+#for(fi in list.files('.')[grep('tions',list.files('.'))])
+#  synapser::synStore(synapser::File(fi,parentId=parentid,annotations=list(resourceType='analysis',isMultiSpecimen='TRUE',isMultiIndividual='TRUE')),used=c(deconv_scores,metaviper_scores),executed=this.script)
+```
+

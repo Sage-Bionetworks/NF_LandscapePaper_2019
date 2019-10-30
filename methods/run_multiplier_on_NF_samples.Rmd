@@ -1,0 +1,224 @@
+---
+title: "pan-NF multiPLIER analysis for Landscape Paper"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Setup
+
+```{r setup}
+library(tximport)
+library(tidyverse)
+library(synapser)
+library(org.Hs.eg.db)
+```
+
+## Login to Synapse
+
+```{r include=FALSE}
+synLogin()
+```
+
+## Get annotation maps and multiPLIER code
+
+```{r}
+source('https://raw.githubusercontent.com/greenelab/multi-plier/7c56a2867f9f08f7bcd3617875c7c2dbe886cbeb/util/plier_util.R')
+
+plier_model <- readr::read_rds(synGet("syn18689545")$path) ## Provided by the CCDL (Jaclyn Taroni, Casey Greene, et al)
+
+`%>%` <- magrittr::`%>%`
+
+```
+
+## Get expression data
+
+```{r message=FALSE, warning=FALSE}
+tx2gene_df <- synGet('syn18482848')$path %>% readr::read_tsv()
+
+
+metadata <- synTableQuery("SELECT * FROM syn21046851", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'")
+
+
+metadata$isCellLine <- toupper(metadata$isCellLine)
+
+rownames(metadata) <- metadata$id
+
+metadata[is.na(metadata)] <- "NA"
+
+salmon_entities <- sapply(metadata$id, synGet)
+
+salmon_filepaths <- sapply(salmon_entities, function(x){
+  x$path
+})
+
+tx_data <- tximport(salmon_filepaths, type = 'salmon', tx2gene = tx2gene_df,
+                          countsFromAbundance = "no", ignoreTxVersion = TRUE)
+```
+
+
+## Map IDs 
+
+Map Ensembl ids to HUGO identifiers for multiPLIER. Get rid of duplicated genes and filter out low abundance genes (sum of gene counts < 10 removed).
+```{r}
+abundance <- tx_data$abundance %>% as.data.frame() 
+
+mapped_list <- mapIds(org.Hs.eg.db, keys = rownames(abundance), column = "SYMBOL", 
+                      keytype = "ENSEMBL", multiVals = "list")
+
+mapped_df <- reshape2::melt(mapped_list)
+
+colnames(mapped_df) <- c("SYMBOL", "ENSEMBL")
+
+abundance$gene_id <- rownames(abundance)
+
+# let's use the mappings to reannotate our data
+abundance <- mapped_df %>%
+  # removing anything in the SYMBOL column that is NA
+  filter(!is.na(SYMBOL)) %>%
+  # join by Ensembl gene ids, retaining only Ensembl gene ids in both
+  inner_join(y = abundance, by = c("ENSEMBL" = "gene_id")) %>% 
+  dplyr::select(-ENSEMBL) %>% 
+  add_count(SYMBOL)
+
+duplicate_genes <- abundance %>% filter(n > 1) %>% dplyr::select(-n)
+
+abundance_filt <- abundance  %>% 
+  filter(n == 1) %>% 
+  tibble::column_to_rownames("SYMBOL") %>% 
+  dplyr::select(-n)  %>%
+  as.matrix()
+
+abundance_filt_cutoff <- abundance_filt[rowSums(abundance_filt) > 10,]
+
+```
+
+# multiPLIER
+
+## Filtering out LVs
+
+```{r}
+mp_res <- GetNewDataB(abundance_filt_cutoff, plier_model)
+```
+
+### Filter by standard deviation 
+
+Most of the latent variables have low standard deviation across this cohort of samples, and thus are probably not interesting for comparing across or within tumor groups. A cutoff of SD > 0.075 seems to be a reasonable cutoff to filter out the least variable LVs. 
+
+```{r}
+mp_res_tidy <- mp_res %>% 
+  as.data.frame(.) %>% 
+  tibble::rownames_to_column('latent_var') %>% 
+  tidyr::gather("id","value",-latent_var) %>% 
+  group_by(latent_var) %>% 
+  mutate(sd_value = sd(value)) %>% 
+  ungroup() %>% 
+  mutate(trunc_label = stringr::str_trunc(latent_var, 10, "right")) %>% 
+  left_join(metadata)
+
+ggplot(data= mp_res_tidy %>% dplyr::select(latent_var,sd_value) %>% distinct()) +
+  geom_histogram(aes(x=sd_value))
+
+ggplot(data = mp_res_tidy) +
+  geom_boxplot(aes(x=reorder(trunc_label, -sd_value), y = value, color = sd_value > 0.075))
+
+```
+
+It is probably a safe assumption that (at least for subtyping these tumors), the latent variables with high variance across the cohort are the most "interesting." We won't filter these out a priori because we have some downstream analyses that might use te low sd data as well. 
+
+```{r eval=FALSE, include=FALSE}
+
+# mp_res_tidy_filt <- mp_res_tidy %>% 
+#   filter(sd_value > 0.05)
+# 
+# mp_res_filt <- mp_res[rownames(mp_res) %in% unique(mp_res_tidy_filt$latent_var),]
+
+```
+
+### Filter by Correlation
+
+We'll correlate the loadings of the latent variables to see if any have huge overlap between one another. In the plot below, if "high SD" is true, we are looking at the correlation of a latent variable where the standard deviation is 0.075 to another LV with a SD > 0.075. All other comparisions are in red. 
+
+```{r}
+
+plier_loadings <- plier_model$Z 
+colnames(plier_loadings) <- rownames(mp_res)
+
+plier_cor <- cor(plier_loadings) 
+
+interesting_lvs <- mp_res_tidy$latent_var 
+
+plier_cor_tidy <- plier_cor %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column('lv1') %>% 
+  tidyr::gather("lv2","cor",-lv1) %>% 
+  filter(lv1 != lv2) %>% 
+  distinct() %>%
+  mutate(high_sd=case_when((lv1 %in% interesting_lvs & lv2 %in% interesting_lvs) ~ TRUE,
+                               (!lv1 %in% interesting_lvs | !lv2 %in% interesting_lvs) ~ FALSE))
+
+ggplot(data = plier_cor_tidy) + 
+  geom_density(aes(x = cor, color = high_sd))
+
+```
+
+And toss out latent variables with a Pearson correlation >0.5 to other latent variables.
+
+```{r}
+high_cor_rm <- plier_cor_tidy %>% filter(cor > 0.5 & high_sd == TRUE) %>% group_by(cor) %>% dplyr::slice(2) %>% ungroup()
+
+mp_res <- mp_res[!rownames(mp_res) %in% high_cor_rm$lv1,]
+
+mp_res_tidy_filt <- filter(mp_res_tidy, !latent_var %in% high_cor_rm$lv1)
+```
+
+```{r eval=FALSE, include=FALSE}
+##upload results
+
+mp_res_tidy_final <- dplyr::select(mp_res_tidy_filt, id, name, latent_var, value, projectId, consortium, diagnosis, tumorType, fundingAgency, individualID, nf1Genotype, nf2Genotype, species, isCellLine, studyId, studyName, specimenID, sex, cellType, modelOf, experimentalCondition)
+
+cols <- list(
+  Column(name = "id", columnType = "ENTITYID"),
+  Column(name = "name", columnType = "STRING", maximumSize = 100),
+    Column(name = "latent_var", columnType = "LARGETEXT"),
+    Column(name = "value", columnType = "DOUBLE"),
+    Column(name = "projectId", columnType = "ENTITYID"),
+    Column(name = "consortium", columnType = "STRING", maximumSize = 100),
+    Column(name = "diagnosis", columnType = "STRING", maximumSize = 100),
+    Column(name = "tumorType", columnType = "STRING", maximumSize = 100),
+    Column(name = "fundingAgency", columnType = "STRING", maximumSize = 100),
+    Column(name = "individualID", columnType = "STRING", maximumSize = 100),
+    Column(name = "nf1Genotype", columnType = "STRING", maximumSize = 100),
+    Column(name = "nf2Genotype", columnType = "STRING", maximumSize = 100),
+    Column(name = "species", columnType = "STRING", maximumSize = 100),
+    Column(name = "isCellLine", columnType = "STRING", maximumSize = 100),
+      Column(name = "studyId", columnType = "STRING", maximumSize = 100),
+      Column(name = "studyName", columnType = "STRING", maximumSize = 100),
+      Column(name = "specimenID", columnType = "STRING", maximumSize = 100),
+      Column(name = "sex", columnType = "STRING", maximumSize = 100),
+      Column(name = "cellType", columnType = "STRING", maximumSize = 100),
+      Column(name = "modelOf", columnType = "STRING", maximumSize = 100),
+      Column(name = "experimentalCondition", columnType = "STRING", maximumSize = 100))
+
+schema <- Schema(name = "Pan-NF MultiPLIER Results for Landscape Paper", parent = "syn21046734", columns = cols)
+table <- Table(schema, mp_res_tidy_final)
+table <- synStore(table)
+
+##upload loading data
+table_2 <- synBuildTable("MultiPLIER LV Loading", parent = "syn21046734", plier_cor_tidy)
+synStore(table_2)
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+sessionInfo()
+```
+

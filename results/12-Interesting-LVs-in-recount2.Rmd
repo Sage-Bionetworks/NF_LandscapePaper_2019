@@ -1,0 +1,252 @@
+---
+title: "12 - Cutaneous Neurofibroma Tumor Metadata and LV Correlation"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(synapser)
+synLogin()
+library(tidyverse)
+library(recount)
+```
+
+# Get Data
+
+This is nearly entirely based on the code in notebook 08. 
+
+Get the recount model, which is from [here](https://figshare.com/articles/recount_rpkm_RData/5716033/4) - we duplicated this on Synapse for ease of programmatic access.
+
+We also have latent variable expression analysis data
+- [Latent Variable Table](https://www.synapse.org/#!Synapse:syn21046991/tables/)
+Let's see if there are any correlations between LV expression and tumor size and patient age.
+
+
+```{r,warning=FALSE}
+
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame()
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+
+```
+
+We can use `recount` to grab the metadata for the recount2 dataset. It's hard to tell how useful it will be, it's pretty inconsistent from study to study. 
+
+```{r}
+
+meta <- recount::all_metadata() %>% 
+   as_tibble() %>% 
+   dplyr::select(project, run, sharq_beta_tissue, sharq_beta_cell_type, title,
+          characteristics) %>% 
+   mutate(sample = paste0(project,'.',run))
+
+
+```
+
+# Pan-NF vs Recount2 correlation by LV expression 
+
+First, we'll take the multiplier data and create a matrix out of the NF latent variable expression data, and then also get the recount2 LV expression matrix (filtering for the same LVs as we have in the `mp_res` nf LV expression analysis). Then use `coop::pcor` to correlate each column in the NF data with each column in the recount2 data.
+
+```{r message=FALSE, warning=FALSE}
+
+nf_res <- mp_res %>% 
+  dplyr::rename(lv = latent_var, sample = specimenID) %>% 
+  dplyr::select(sample, lv, value) %>% 
+  group_by(lv) %>% 
+  spread(sample, value) %>% 
+  ungroup() %>% 
+  column_to_rownames('lv') %>% 
+  as.matrix() 
+
+recount2_res <- plier_model$B %>% 
+  .[rownames(.) %in% rownames(nf_res),]
+
+cors <- apply(nf_res, 2, function(x){
+  apply(recount2_res, 2, function(y){
+    coop::pcor(x,y)
+  })
+})
+
+```
+
+## Correlation histograms
+
+Join the correlation table with the sample (recount2) and specimenID (nf) metadata. Plot overall correlation histogram by tumorType. Ok, so there is some correlated stuff and some not correlated stuff. This is not very helpful. 
+
+```{r message=FALSE, warning=FALSE}
+
+specimen_meta <- mp_res %>% 
+  dplyr::select(specimenID, tumorType, modelOf) %>% 
+  distinct()
+
+cors_tidy <- cors %>% 
+  as_tibble(rownames = "sample") %>% 
+  gather(key = "specimenID", value = 'cor', -sample) %>% 
+  left_join(meta) %>% 
+  left_join(specimen_meta)
+
+ggplot(cors_tidy) +
+  geom_histogram(aes(x = cor, fill = tumorType)) +
+  facet_wrap(tumorType ~ . )
+```
+
+## Correlation tables 
+
+We can also look at the highest correlated samples, lets say 3, for each NF sample. This is interesting to browse, but due to lack of consistent metadata is pretty hard to do any sort of statistical analysis without substantial data cleaning.
+
+```{r message=FALSE, warning=FALSE}
+
+cors_tidy_filt <-  cors_tidy %>% 
+  group_by(specimenID) %>% 
+  top_n(3, cor) %>% 
+  dplyr::select(sample, specimenID, cor, title, characteristics) %>% 
+  ungroup()
+
+DT::datatable(cors_tidy_filt)
+```
+
+# MPNST vs pNF LV Expression 
+
+Instead, let's ask a more target question: which samples are most like MPNST _and_ least like pNF. pNF progress to MPNST, so if we can modulate these latent variables, or if we can get some biological insight into which recount2 samples are most like MPNST and least like pNF, we might be able to get a clearer picture of what is going on. 
+
+First filter for just these tumor types, and do a t.test across the two tumor types for each LV. Join this data back to the expression data. Plot some of the most significant of these to get an idea of what the latent variables are. 
+
+```{r message=FALSE, warning=FALSE}
+
+mp_top <- mp_res %>% 
+  filter(tumorType %in% c('Malignant Peripheral Nerve Sheath Tumor', 'Plexiform Neurofibroma')) %>%
+  group_by(latent_var) %>%
+  summarize(p = t.test(value ~ tumorType, order = c('Malignant Peripheral Nerve Sheath Tumor', 'Plexiform Neurofibroma'))$p.value) %>% 
+  mutate(bh = p.adjust(p, method = 'BH'))
+
+mp_with_signif <- mp_res %>% 
+  filter(latent_var %in% mp_top$latent_var,
+                         tumorType %in% c('Malignant Peripheral Nerve Sheath Tumor',
+                                          'Plexiform Neurofibroma'))  %>% 
+  left_join(mp_top)
+
+mp_with_signif_filt <- mp_with_signif %>% filter(bh < 0.01)
+  
+ggplot(mp_with_signif_filt %>% filter(bh < 0.003)) +
+  geom_boxplot(aes(x= latent_var, y = value, color = tumorType)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+```
+
+Then, redo the correlation test we did with nf vs recount 2 but only correlate on the basis of the most significant LVs (BH < 0.01) that define the difference between pNF and MPNST. 
+
+```{r message=FALSE, warning=FALSE}
+nf_res <- mp_res %>% 
+  dplyr::rename(lv = latent_var, sample = specimenID) %>% 
+  filter(lv %in% mp_with_signif_filt$latent_var) %>% 
+  dplyr::select(sample, lv, value) %>% 
+  group_by(lv) %>% 
+  spread(sample, value) %>% 
+  ungroup() %>% 
+  column_to_rownames('lv') %>% 
+  as.matrix() 
+
+recount2_res <- plier_model$B %>% 
+  .[rownames(.) %in% rownames(nf_res),]
+
+cors <- apply(nf_res, 2, function(x){
+  apply(recount2_res, 2, function(y){
+    coop::pcor(x,y)
+  })
+})
+
+specimen_meta <- mp_res %>% 
+  dplyr::select(specimenID, tumorType, modelOf) %>% 
+  distinct()
+
+```
+
+Then calculate a p-value for each correlation as a function of the tumorType. This is to find recount2 samples that are significantly differently correlated to MPNST vs pNF, as we want things that look like one tumor type but not the other. 
+
+```{r message=FALSE, warning=FALSE}
+cors_tidy <- cors %>% 
+  as_tibble(rownames = "sample") %>% 
+  gather(key = "specimenID", value = 'cor', -sample) %>% 
+  filter(specimenID %in% mp_with_signif_filt$specimenID) %>% 
+  left_join(meta) %>% 
+  left_join(specimen_meta) %>% 
+  group_by(sample) %>%
+  summarize(p = t.test(cor ~ tumorType, order = c('Malignant Peripheral Nerve Sheath Tumor', 'Plexiform Neurofibroma'))$p.value) %>% 
+  mutate(bh = p.adjust(p, method = 'BH'))
+
+```
+
+Then, just to get a sense of what these data look like we can create a heatmap. Unsurprisingly, because we effectively forced it to be this way by looking for recount2 samples significantly correlated to nf samples by tumorType, the nf samples cluster by tumorType.  (sidenote, I wonder if 2-009 MPNST is actually a pNF??).
+
+```{r message=FALSE, warning=FALSE}
+
+
+cors_and_nf <- cors %>% 
+  as_tibble(rownames = "sample") %>% 
+  gather(key = "specimenID", value = 'cor', -sample) %>% 
+  filter(specimenID %in% mp_with_signif_filt$specimenID) %>% 
+  left_join(meta) %>% 
+  left_join(specimen_meta) %>% 
+  left_join(cors_tidy) %>% 
+  filter(bh < 0.001)
+  
+pheatmap::pheatmap(cors_and_nf %>% 
+                     dplyr::select(sample, specimenID, cor) %>% 
+                     spread(specimenID, cor) %>% 
+                     column_to_rownames("sample"))
+
+```
+
+It's hard to tell where to go from here. There are a lot of highly correlated samples based on these lvs, but there's no clear biological theme associating them:
+
+```{r message=FALSE, warning=FALSE}
+
+corr_samples <- cors_and_nf %>% 
+  dplyr::select(sample, tumorType, cor, bh, characteristics)
+
+DT::datatable(corr_samples)
+
+```
+
+## Gene loading of significant LVs in MPNST vs pNF
+I think the more valuable exercise is probably to look at the significant LVs and get a sense of what they might be doing based on gene loading. 
+
+```{r message=FALSE, warning=FALSE}
+
+plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
+
+for(i in unique(mp_with_signif_filt$latent_var)){
+  
+  bhp <- mp_with_signif_filt %>% filter(latent_var == i) %>% pluck('bh') %>% unique() %>% signif(3)
+  
+  p1 <- ggplot(data = mp_with_signif_filt %>% filter(latent_var == i)) +
+  ggbeeswarm::geom_quasirandom(aes(x=latent_var, y = value , color = tumorType, group = tumorType), dodge.width = 0.75) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 10, angle = 0)) +
+    labs(x = "", y = "multiPLIER value", title = glue::glue("bh corrected p-value: {bhp}"))
+
+  tidy <- plier_loadings_df %>%
+    dplyr::select(i) %>% 
+    tibble::rownames_to_column('lv')
+
+  p2 <- ggplot(tidy %>% top_n(30, get(i))) +
+    geom_bar(aes(x=reorder(lv, -get(i)), y=get(i)), stat = "identity") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+      labs(x = "Gene", y = "LV Loading")
+
+  
+  gridExtra::grid.arrange(p1, p2)
+
+}
+
+
+```
+
+

@@ -46,7 +46,7 @@ tab%>%select(individualID,Plexiform_Neurofibromas,MPNST,specimenID,tumorType)%>%
 
 ## Compare patients 
 
-First let's look at pNF immune scores bracketed by whether or not patient has pNFs
+First let's look at pNF immune scores bracketed by whether or not patient has MPNSTs
 
 ```{r, warning=FALSE}
 tab%>%subset(tumorType=='Plexiform Neurofibroma')%>%

@@ -11,14 +11,14 @@ output:
 
 ```{r setup, include=FALSE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-##compare tumor immune scores to metaviper predictions
+##compare tumor immune scores to lv expression
 
 library(synapser)
 synLogin()
 library(tidyverse)
 
 deconv_scores='syn20710536'
-lv_scores='syn20503291'
+lv_scores='syn21046991'
 ```
 
 ### Immune predictions correlated with multiplier latent variable expression

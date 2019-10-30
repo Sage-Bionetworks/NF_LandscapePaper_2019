@@ -1,0 +1,127 @@
+---
+title: "Tumor type association with latent variable expression in NF tumors"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+
+Here, we are evaluating the expression of latent variables in NF tumors as they pertain to the type of the tumor. These data were generated as part of developing the braiNFood app. 
+
+# Import packages
+
+First, import packages to process and plot the data. 
+
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(stringr)
+library(ggbeeswarm)
+library(synapser)
+synLogin()
+
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame() %>% 
+  filter(tumorType!="NA",
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005"))
+#(getting rid of xenograft samples)
+           
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+
+plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
+
+drug_targets <- feather::read_feather(synGet('syn20700199')$path)
+
+drug_targets <- drug_targets %>% 
+  filter(mean_pchembl > 7) %>% 
+  mutate(gene= hugo_gene) %>% 
+  select(gene, std_name) 
+```
+
+# Significance testing
+
+We already have the expression of the latent variables in these tumors. Let's filter out low variance samples. 
+
+Then, we perform a kruskall-wallis test and adjust the resulting p-value based on the expression of a latent variable as a function of the sex of the patient the sample was taken from. 
+
+Then we take the tidy data frame of latent variable data, group by the variable and tumor type, nest the dataframe based on those groups, and then calculate the p-value for each nested data frame. Finally, we plot a boxplot for any latent variable where the BH-adjusted p-value is <0.1 when comparing female to male tumors. 
+
+In addition, we'll also do this analysis between the two sexes without regard for the tumor type to see if there are any consistent differences when the type of tumor is not a factor. 
+
+```{r message=FALSE, warning=FALSE}
+
+##filter out low variance samples, only look at top 10% most variant across cohort
+
+mp_res_sd <- mp_res %>% 
+  group_by(latent_var) %>% 
+  summarize(sd = sd(value)) %>% 
+  filter(sd > quantile(sd, 0.90))
+  
+res_model <- mp_res %>% 
+  filter(latent_var %in% mp_res_sd$latent_var) %>% 
+  group_by(latent_var) %>% 
+  nest() %>% 
+  mutate(pval= map(data,function(x){
+    kruskal.test(formula = value ~ tumorType, data = x)$p.value
+  }) %>% 
+           as.numeric %>% 
+           signif(., digits = 3)) %>% 
+  mutate(p_adj = p.adjust(pval, n = nrow(.), method = "BH")) %>% 
+  filter(p_adj < 0.05) %>% 
+  arrange(-p_adj) 
+
+tidy <- plier_loadings_df %>% 
+      tibble::rownames_to_column('gene') %>%
+  gather(lv, loading, -gene) %>% 
+  filter(loading > 0)
+
+ 
+res_plot <- res_model %>% 
+  mutate(title = paste0(latent_var," BH p-value = ", p_adj) %>% 
+           str_wrap(., width = 40)) %>% 
+  mutate(plots = map2(title, data, function(.x,.y){
+      ggplot(data = .y %>% mutate(tumorType = str_wrap(tumorType, width = 15))) +
+      geom_boxplot(aes(x = tumorType, y = value, fill = tumorType)) +
+      geom_beeswarm(aes(x = tumorType, y = value)) +
+      ggtitle(.x) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5))
+  })) %>% 
+  mutate(plots_loading = map(latent_var, function(x){
+    ggplot(tidy %>% filter(lv == x) %>% top_n(30, loading)) +
+    geom_bar(aes(x=reorder(gene, -loading), y=loading, fill = gene %in% drug_targets$gene), stat = "identity") +
+    scale_fill_discrete(name="Druggable") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+      labs(x = "Gene", y = "LV Loading")
+  }))
+
+DT::datatable(res_model %>% select(-data))
+```
+
+# Plots 
+
+### Tumor Specific 
+
+Here are the latent variables where BH p < 0.05 when grouping by tumor type. Again, we're only considering lvs in the top 10% of variance across the cohort.
+
+```{r}
+
+plots <- map2(res_plot$plots,res_plot$plots_loading,function(.x,.y){
+    combo_plot <- gridExtra::grid.arrange(.x,.y)
+})
+
+plots
+```
+

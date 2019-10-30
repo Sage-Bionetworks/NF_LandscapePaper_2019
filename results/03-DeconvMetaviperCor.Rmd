@@ -39,6 +39,8 @@ mtab<-read.csv(synapser::synGet(metaviper_scores)$path,sep='\t')%>%
 dtab<-subset(dtab,method!='xcell')
 combined=dtab%>%select(c(cell_type,method,specimenID,immScore))%>%
   left_join(mtab,by='specimenID')
+
+combined<-subset(combined,!conditions%in%c('High Grade Glioma','Low Grade Glioma'))
 ```
 
 Then we can compute the correlation of each cell type measurement with each protein

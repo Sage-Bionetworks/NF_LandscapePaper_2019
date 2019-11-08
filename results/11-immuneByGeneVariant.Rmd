@@ -88,7 +88,7 @@ with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
   mutate(corP=p.adjust(pval))%>%ungroup()%>%
   select(cell_type,method,gene,pval,corP)%>%distinct()
 
-sig.vals<-subset(with.sig,corP<0.3)
+sig.vals<-subset(with.sig,corP<0.1)
 
 DT::datatable(sig.vals)
 

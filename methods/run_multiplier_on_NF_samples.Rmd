@@ -15,6 +15,7 @@ library(tximport)
 library(tidyverse)
 library(synapser)
 library(org.Hs.eg.db)
+library(PLIER)
 ```
 
 ## Login to Synapse
@@ -40,7 +41,7 @@ plier_model <- readr::read_rds(synGet("syn18689545")$path) ## Provided by the CC
 tx2gene_df <- synGet('syn18482848')$path %>% readr::read_tsv()
 
 
-metadata <- synTableQuery("SELECT * FROM syn21046851", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'")
+metadata <- synTableQuery("SELECT * FROM syn21046851", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'") as well as ("SELECT * FROM syn20629788 where fileFormat = 'sf' and tumorType = 'plexiform neurofibroma'")
 
 
 metadata$isCellLine <- toupper(metadata$isCellLine)
@@ -180,42 +181,48 @@ mp_res_tidy_filt <- filter(mp_res_tidy, !latent_var %in% high_cor_rm$lv1)
 
 mp_res_tidy_final <- dplyr::select(mp_res_tidy_filt, id, name, latent_var, value, projectId, consortium, diagnosis, tumorType, fundingAgency, individualID, nf1Genotype, nf2Genotype, species, isCellLine, studyId, studyName, specimenID, sex, cellType, modelOf, experimentalCondition)
 
-cols <- list(
-  Column(name = "id", columnType = "ENTITYID"),
-  Column(name = "name", columnType = "STRING", maximumSize = 100),
-    Column(name = "latent_var", columnType = "LARGETEXT"),
-    Column(name = "value", columnType = "DOUBLE"),
-    Column(name = "projectId", columnType = "ENTITYID"),
-    Column(name = "consortium", columnType = "STRING", maximumSize = 100),
-    Column(name = "diagnosis", columnType = "STRING", maximumSize = 100),
-    Column(name = "tumorType", columnType = "STRING", maximumSize = 100),
-    Column(name = "fundingAgency", columnType = "STRING", maximumSize = 100),
-    Column(name = "individualID", columnType = "STRING", maximumSize = 100),
-    Column(name = "nf1Genotype", columnType = "STRING", maximumSize = 100),
-    Column(name = "nf2Genotype", columnType = "STRING", maximumSize = 100),
-    Column(name = "species", columnType = "STRING", maximumSize = 100),
-    Column(name = "isCellLine", columnType = "STRING", maximumSize = 100),
-      Column(name = "studyId", columnType = "STRING", maximumSize = 100),
-      Column(name = "studyName", columnType = "STRING", maximumSize = 100),
-      Column(name = "specimenID", columnType = "STRING", maximumSize = 100),
-      Column(name = "sex", columnType = "STRING", maximumSize = 100),
-      Column(name = "cellType", columnType = "STRING", maximumSize = 100),
-      Column(name = "modelOf", columnType = "STRING", maximumSize = 100),
-      Column(name = "experimentalCondition", columnType = "STRING", maximumSize = 100))
+# cols <- list(
+#   Column(name = "id", columnType = "ENTITYID"),
+#   Column(name = "name", columnType = "STRING", maximumSize = 100),
+#     Column(name = "latent_var", columnType = "LARGETEXT"),
+#     Column(name = "value", columnType = "DOUBLE"),
+#     Column(name = "projectId", columnType = "ENTITYID"),
+#     Column(name = "consortium", columnType = "STRING", maximumSize = 100),
+#     Column(name = "diagnosis", columnType = "STRING", maximumSize = 100),
+#     Column(name = "tumorType", columnType = "STRING", maximumSize = 100),
+#     Column(name = "fundingAgency", columnType = "STRING", maximumSize = 100),
+#     Column(name = "individualID", columnType = "STRING", maximumSize = 100),
+#     Column(name = "nf1Genotype", columnType = "STRING", maximumSize = 100),
+#     Column(name = "nf2Genotype", columnType = "STRING", maximumSize = 100),
+#     Column(name = "species", columnType = "STRING", maximumSize = 100),
+#     Column(name = "isCellLine", columnType = "STRING", maximumSize = 100),
+#       Column(name = "studyId", columnType = "STRING", maximumSize = 100),
+#       Column(name = "studyName", columnType = "STRING", maximumSize = 100),
+#       Column(name = "specimenID", columnType = "STRING", maximumSize = 100),
+#       Column(name = "sex", columnType = "STRING", maximumSize = 100),
+#       Column(name = "cellType", columnType = "STRING", maximumSize = 100),
+#       Column(name = "modelOf", columnType = "STRING", maximumSize = 100),
+#       Column(name = "experimentalCondition", columnType = "STRING", maximumSize = 100))
+# 
+# schema <- Schema(name = "Pan-NF MultiPLIER Results for Landscape Paper", parent = "syn21046734", columns = cols)
+# table <- Table(schema, mp_res_tidy_final)
+# table <- synStore(table)
 
-schema <- Schema(name = "Pan-NF MultiPLIER Results for Landscape Paper", parent = "syn21046734", columns = cols)
-table <- Table(schema, mp_res_tidy_final)
-table <- synStore(table)
+#Table and schema exist from first time code was run, so for re-runs we can just update it by: 
 
-##upload loading data
-table_2 <- synBuildTable("MultiPLIER LV Loading", parent = "syn21046734", plier_cor_tidy)
-synStore(table_2)
+res <- synTableQuery("SELECT * FROM syn21046991")
+del <- synDelete(res)
+
+tab <- Table('syn21046991', mp_res_tidy_final)
+tab <- synStore(tab)
+
+##upload loading data - commented out so we don't redo this 
+# table_2 <- synBuildTable("MultiPLIER LV Loading", parent = "syn21046734", plier_cor_tidy)
+# synStore(table_2)
 
 ```
 
-```{r}
 
-```
 
 
 ```{r}

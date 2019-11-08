@@ -134,6 +134,13 @@
       "Source": "Bioconductor",
       "Hash": "f5291984af716ad19f358267073865fd"
     },
+    "KernSmooth": {
+      "Package": "KernSmooth",
+      "Version": "2.23-16",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "84a88058631ec805224b0318b9e78ab4"
+    },
     "MASS": {
       "Package": "MASS",
       "Version": "7.3-51.4",
@@ -147,6 +154,18 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "b2eae6a1a2e206ecc478f3ff9dc98a5e"
+    },
+    "PLIER": {
+      "Package": "PLIER",
+      "Version": "0.99.0",
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteRepo": "PLIER",
+      "RemoteUsername": "wgmao",
+      "RemoteRef": "master",
+      "RemoteSha": "8fba7af2fbec9fd23a9ffcad913e4589990bde2f",
+      "Hash": "2aaad6a4ea27c639b88e04aa91246858"
     },
     "PythonEmbedInR": {
       "Package": "PythonEmbedInR",
@@ -321,6 +340,13 @@
       "Version": "1.24.5",
       "Source": "Bioconductor",
       "Hash": "3d6b428ff55cecdfa7b5129da16a20be"
+    },
+    "caTools": {
+      "Package": "caTools",
+      "Version": "1.17.1.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "20eca4011f39828a8109a027e0e70ee2"
     },
     "callr": {
       "Package": "callr",
@@ -551,6 +577,13 @@
       "Repository": "CRAN",
       "Hash": "a367f38cb2a45f5182ff803a2c75452e"
     },
+    "gdata": {
+      "Package": "gdata",
+      "Version": "2.18.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "e7c9dd5450cfbb01dd80e4b873ef9cd9"
+    },
     "generics": {
       "Package": "generics",
       "Version": "0.0.2",
@@ -600,12 +633,26 @@
       "Repository": "CRAN",
       "Hash": "658770fa018b99117927f62f97871453"
     },
+    "glmnet": {
+      "Package": "glmnet",
+      "Version": "2.0-18",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "9e9d7f59affa6c8f1098cbf5671238d0"
+    },
     "glue": {
       "Package": "glue",
       "Version": "1.3.1",
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "156f76da413ebe13f4d7e65ae6a5d19f"
+    },
+    "gplots": {
+      "Package": "gplots",
+      "Version": "3.0.1.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "3fab29041c244204a2e61a53cd728420"
     },
     "gridExtra": {
       "Package": "gridExtra",
@@ -620,6 +667,13 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "120444406cc884baa3a2ff5c0566045b"
+    },
+    "gtools": {
+      "Package": "gtools",
+      "Version": "3.8.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "a7fe2106d673bc8ebc7529e33d25c2ea"
     },
     "haven": {
       "Package": "haven",
@@ -1064,6 +1118,13 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "6c03ab57831cbdae14d599151e832e18"
+    },
+    "rsvd": {
+      "Package": "rsvd",
+      "Version": "1.0.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "4ec31e74954466d1ca59e17e24617661"
     },
     "rtracklayer": {
       "Package": "rtracklayer",

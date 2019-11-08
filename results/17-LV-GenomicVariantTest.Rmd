@@ -23,7 +23,7 @@ library(feather)
 This is nearly entirely based on the code in notebook 09 and that in 11. 
 
 We have latent variable expression analysis data
-- [Latent Variable Feather File](hhttps://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather/)
+- [Latent Variable Feather File](https://www.synapse.org/#!Synapse:syn21046991/tables/)
 
 For this data we are also using any data for which there are gene variants (cNFs, pNFs, MPNSTs):
 - [Exome-Seq variants](https://www.synapse.org/#!Synapse:syn20554939/tables/)
@@ -32,27 +32,34 @@ For this data we are also using any data for which there are gene variants (cNFs
 Let's see if there are any LVs that split based on gene variant. Because we're having trouble scaling with the number of latent variables, I only look at variants that occur in less than 5% of the population. notice this is a difference from notebook #11.
 
 ```{r,warning=FALSE}
-wgs.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF FROM syn20551862")$asDataFrame()
-exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF FROM syn20554939")$asDataFrame()
+wgs.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF FROM syn20551862")$asDataFrame()
+exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF FROM syn20554939")$asDataFrame()
 
-all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','ExAC_AF'),
-    select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','ExAC_AF'))%>%
-  subset(ExAC_AF<0.05)
+all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'),
+    select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'))%>%
+  subset(gnomAD_AF<0.05)
 
 
-fn <- tempfile(pattern = "", fileext = ".feather")
-download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = fn)
-mp_res<-read_feather(fn) %>% filter(sex != "NA", isCellLine != "TRUE")%>%
-  select(latent_var,id,value,sd_value,specimenID,tumorType,modelOf,diagnosis)
+#fn <- tempfile(pattern = "", fileext = ".feather")
+#download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = fn)
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame()%>%
+  filter(isCellLine != "TRUE")%>%
+  select(latent_var,id,value,specimenID,tumorType,modelOf,diagnosis)
 
 ```
 
 # Merge data together
-For the purposes of this analysis we want to have only those samples wtih genomic data.
+For the purposes of this analysis we want to have only those samples wtih genomic data and only those latent variables that are highly variable.
 
 ```{r, warning=FALSE}
 samps<-intersect(mp_res$specimenID,all.vars$specimenID)
 print(samps)
+
+mp_res<-mp_res%>%
+  group_by(latent_var) %>%
+  mutate(sd_value = sd(value)) %>%
+  filter(sd_value > 0.05) %>%
+  ungroup()
 
 ```
 

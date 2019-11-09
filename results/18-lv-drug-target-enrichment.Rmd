@@ -1,0 +1,156 @@
+---
+title: "Tumor type association with latent variable expression in NF tumors"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+
+Here, we are evaluating the 'druggability' of latent variables. 
+
+# Import packages
+
+First, import packages to process and plot the data. 
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(synapser)
+synLogin()
+library(clusterProfiler)
+
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+
+plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
+
+drug_targets <- feather::read_feather(synGet('syn20700199')$path)
+
+drug_targets <- drug_targets %>% 
+  filter(mean_pchembl > 7) %>% 
+  mutate(gene= hugo_gene) %>% 
+  select(gene, std_name) 
+```
+
+# Significance testing
+
+First, create a list of all druggable genes. We're using the drug-target explorer data, for any gene for which there is drug-target relationship with a mean_pchembl value >7, which corresponds to 1 uM. This gives us a rough approximation of druggable targets in the human genome but could be a bit under conservative.
+
+Then, we'll select the top 5% of genes by loading in each latent variable. This gives us genes that contribute most strongly to a given LV. 
+
+Then, we'll perform a weighted Kolmogorov-Smirnov test using the `GSEA` function from the `clusterProfiler` package to assess whether any of the LVs are enriched in the universe of druggable genes. Here, we're treating each LV as the ranked list of genes (for standard GSEA, this would be the differentially expressed genes, for example) and treating the list of all drug targets as the gene set we're looking for enrichment in. 
+
+
+```{r message=FALSE, warning=FALSE}
+
+term2gene <- drug_targets %>% 
+  mutate(term = 'all_drugs') %>% 
+  select(term, gene) %>% 
+  distinct()
+
+tidy <- plier_loadings_df %>% 
+      tibble::rownames_to_column('gene') %>%
+  gather(lv, loading, -gene) %>% 
+  filter(loading > 0) %>% 
+  group_by(lv) %>% 
+  # filter(loading > quantile(loading, 0.95)) %>% ##I think preselecting for percentile weighting might mess up this test
+  filter(any(gene %in% term2gene$gene)) %>% ##remove LVs that have no overlap if any exist
+  nest() %>% 
+  mutate(data = lapply(data, function(x){
+    geneList <- x$loading 
+    names(geneList) <- as.character(x$gene) 
+    geneList <- sort(geneList, decreasing = TRUE)
+    geneList
+  })) ##nest gene lists, looking at top 5% of genes in each LV 
+
+tidy_2 <- tidy %>% ###run GSEA on nested gene lists vs universe of "druggable genes" 
+  mutate(data = sapply(data, function(x){
+   tryCatch(GSEA(geneList = x, TERM2GENE = term2gene), error=function(err) NA)
+ }))
+
+tidy_3 <- tidy_2 %>%  ##store plots and data frames for LVs with significant results
+  mutate(plot = lapply(data, function(x){
+    if(nrow(x)>0){
+      plot <- gseaplot(x, geneSetID = 1)
+    }else{
+        plot <- NA
+    }
+    return(plot)
+    })) %>% 
+    mutate(res = lapply(data, function(x){
+    if(nrow(x)>0){
+      res <- x@result
+    }else{
+        res <- NA
+    }
+    return(res)
+    }))
+
+tidy_filt <- tidy_3 %>% 
+  filter(!is.na(plot)) %>% 
+  select(-data)
+
+```
+
+Then we simply look for LVs where we got a significant (unadjusted) result, and then plot the results. There are `r nrow(tidy_filt)` LVs significantly enriched for drug targets (again, when considering the 95th percentile of genes in the LV). 
+
+Here's a table of all results. p.adjust shows nothing as being significantly enriched, but I don't know enough about how the `GSEA` function does the p-value calculation to know if this makes much sense in this context. E.g. it's pretty clear that there are many druggable targets in each of the LVs in the table (see plots further down), but after adjustment nothing is signficant. One possibility is that the "gene set" of druggable targets is too large at about ~1500 genes? 
+
+```{r}
+
+apply(tidy_filt, 1 , function(x){
+
+  res <- x[['res']] %>%  #we need to fix p.adj because of the way this was run
+    mutate(p.adjust = p.adjust(pvalue, n = nrow(tidy))) %>% 
+    mutate(lv = x[['lv']]) %>% 
+    select(lv,setSize, enrichmentScore, NES,pvalue,p.adjust,
+           leading_edge, core_enrichment)
+  
+  res
+  
+}) %>% bind_rows() %>% DT::datatable()
+
+
+```
+
+Let's plot these results. 
+
+```{r}
+
+
+
+apply(tidy_filt, 1, function(x){
+
+  plt <- x[['plot']]
+  
+  res <- x[['res']] %>%  #we need to fix p.adj because of the way this was run
+    mutate(p.adjust = p.adjust(pvalue, n = nrow(tidy))) %>% 
+    mutate(lv = x[['lv']])
+  
+  tab_1 <- select(res,lv,setSize, enrichmentScore, NES,pvalue,p.adjust) %>% 
+    ggpubr::ggtexttable(theme = ggpubr::ttheme(base_size = 10))
+  
+  tab_2 <- select(res,leading_edge, core_enrichment) %>% 
+    mutate(core_enrichment = stringr::str_trunc(core_enrichment, width = 30)) %>% 
+    ggpubr::ggtexttable(theme = ggpubr::ttheme(base_size = 10))
+
+  cowplot::plot_grid(plt, tab_1, tab_2, nrow=3,ncol=1, rel_heights = c(5,1,1))
+})
+
+
+```
+
+
+```{r}
+
+sessionInfo()
+
+```

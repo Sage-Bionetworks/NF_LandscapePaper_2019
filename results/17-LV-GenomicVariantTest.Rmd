@@ -15,7 +15,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(synapser)
 synLogin()
 library(tidyverse)
-library(feather)
 ```
 
 # Get Data
@@ -23,7 +22,7 @@ library(feather)
 This is nearly entirely based on the code in notebook 09 and that in 11. 
 
 We have latent variable expression analysis data
-- [Latent Variable Feather File](https://www.synapse.org/#!Synapse:syn21046991/tables/)
+- [Latent Variable Table](https://www.synapse.org/#!Synapse:syn21046991/tables/)
 
 For this data we are also using any data for which there are gene variants (cNFs, pNFs, MPNSTs):
 - [Exome-Seq variants](https://www.synapse.org/#!Synapse:syn20554939/tables/)
@@ -40,8 +39,6 @@ all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','I
   subset(gnomAD_AF<0.01)
 
 
-#fn <- tempfile(pattern = "", fileext = ".feather")
-#download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = fn)
 mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame()%>%
   filter(isCellLine != "TRUE")%>%
   select(latent_var,id,value,specimenID,tumorType,modelOf,diagnosis)

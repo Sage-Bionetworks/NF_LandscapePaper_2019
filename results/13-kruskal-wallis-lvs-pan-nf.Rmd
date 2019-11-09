@@ -28,6 +28,7 @@ library(tidyr)
 library(stringr)
 library(ggbeeswarm)
 library(synapser)
+library(feather)
 synLogin()
 
 mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame() %>% 

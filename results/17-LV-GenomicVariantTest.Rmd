@@ -37,7 +37,7 @@ exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,
 
 all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'),
     select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'))%>%
-  subset(gnomAD_AF<0.05)
+  subset(gnomAD_AF<0.01)
 
 
 #fn <- tempfile(pattern = "", fileext = ".feather")
@@ -55,6 +55,7 @@ For the purposes of this analysis we want to have only those samples wtih genomi
 samps<-intersect(mp_res$specimenID,all.vars$specimenID)
 
 mp_res<-mp_res%>%
+  subset(specimenID%in%samps)%>%
   group_by(latent_var) %>%
   mutate(sd_value = sd(value)) %>%
   filter(sd_value > 0.025) %>%
@@ -77,7 +78,7 @@ top.genes=tab%>%group_by(tumorType)%>%
       group_by(tumorType,Hugo_Symbol)%>%
     mutate(numMutated=n_distinct(specimenID))%>%
     ungroup()%>%
-  subset(numMutated>2)%>%
+  subset(numMutated>1)%>%
       subset(numMutated<(numSamps-1))%>%
   select(tumorType,Hugo_Symbol,numSamps,numMutated)%>%distinct()
 
@@ -151,3 +152,18 @@ for(ct in unique(sig.vals$latent_var)){
 ## Breaking down by tumor type
 At first glance it seems that a lot of these are separating out cNFs (i.e. mast cell signaling) from other types. However, I'm getting the same error I get in notebook number 11, so am unsure about how to proceed. 
 
+```{r, warning=FALSE}
+
+#this is a failed attempt to group by tumor type
+#with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
+#    group_by(latent_var,tumorType,gene)%>%
+#  mutate(pval=t.test(value~status)$p.value)%>%
+#  ungroup()%>%
+#  group_by(latent_var)%>%
+#  mutate(corP=p.adjust(pval))%>%ungroup()%>%
+#  select(latent_var,tumorType,gene,pval,corP)%>%distinct()
+
+#sig.vals<-subset(with.sig,corP<0.05)
+
+#DT::datatable(sig.vals)
+```

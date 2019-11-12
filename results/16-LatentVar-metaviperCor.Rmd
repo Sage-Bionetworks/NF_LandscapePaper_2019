@@ -1,0 +1,116 @@
+---
+title: "16-Latent Variable Metaviper Correlation"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+##compare tumor immune scores to metaviper predictions
+
+require(synapser)
+synLogin()
+require(tidyverse)
+
+mp_scores='syn21046991'
+metaviper_scores='syn20503291'
+```
+
+### Latent Variables correlated with metaviper protein activity
+
+First we get the metaviper predictions and LV scores from Synapse
+
+```{r, warning=FALSE}
+#get immune predictions
+dtab<-synapser::synTableQuery(paste('select * from',mp_scores))$asDataFrame()%>%
+  subset(isCellLine!='TRUE')
+
+##get metaviper scores
+mtab<-read.csv(synapser::synGet(metaviper_scores)$path,sep='\t')%>%
+  rename(specimenID='sample')%>%
+  rename(protScore='counts')
+
+
+samps<-intersect(dtab$specimenID,mtab$specimenID)
+
+mp_res<-dtab%>%
+  subset(specimenID%in%samps)%>%
+  group_by(latent_var) %>%
+  mutate(sd_value = sd(value)) %>%
+  filter(sd_value > 0.05) %>%
+  ungroup()%>%
+  select(latent_var,value,tumorType,specimenID,sd_value,diagnosis)
+
+combined<-mp_res%>%inner_join(mtab,by='specimenID')
+
+```
+
+Then we can compute the correlation of each cell type measurement with each protein
+```{r, warning=FALSE}
+corVals=combined%>%group_by(latent_var,gene)%>%summarize(corVal=cor(value,protScore,use='pairwise.complete.obs'))
+
+corVals
+```
+
+### Plotting protein correlations
+We are interested in particular protein signaling activity that might give rise to specific immune phenotypes.
+
+```{r, warning=FALSE}
+##now how do we bracket them?
+##plot correlation distributions by cell type and method.
+require(ggplot2)
+p<-corVals%>%
+              ungroup()%>%
+          #    mutate(LatentVariable = stringr::str_trim(as.character(latent_var), 20))%>%
+              ggplot()+geom_boxplot(aes(x=latent_var,y=corVal))+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ggtitle("Correlation of metaviper proteins with lv")
+print(p)
+```
+
+There are some proteins that show up as highly correlated. By choosing a threshold, we can evaluate what they are in more detail.
+
+```{r, warning=FALSE}
+corthresh=0.65
+
+##now filter to the cell types with correlated proteins
+cor_cell_types=subset(corVals,corVal>corthresh)%>%ungroup()%>%
+  select(latent_var)%>%unique()
+print(paste('we found',nrow(cor_cell_types),'cell types with some protein correlation greater than',corthresh))
+
+
+apply(cor_cell_types,1,function(x){
+  ct=x[['latent_var']]
+#  m=x[['method']]
+
+  #for each gene and cell type
+  genes=subset(corVals,latent_var==ct)%>%
+        subset(corVal>corthresh)%>%
+   arrange(desc(corVal))%>%
+      ungroup()
+
+    if(nrow(genes)>12){
+    new.corthresh=format(genes$corVal[15],digits=3)
+    genes=genes[1:12,]
+  }else{
+    new.corthresh=corthresh
+  }
+
+  scores=subset(combined,gene%in%genes$gene)%>%subset(latent_var==ct)
+
+  p2<- ggplot(scores)+
+      geom_point(aes(x=value,y=protScore,
+          col=gene,shape=conditions))+
+    scale_x_log10()+
+      ggtitle(paste(ct,'correlation >',new.corthresh))
+  print(p2)
+ # ggsave(paste0(m,'predictions of',gsub(" ","",gsub("/","",ct)),'cor',new.corthresh,'.pdf'))
+})
+
+#parentid='syn20710537'
+#for(fi in list.files('.')[grep('tions',list.files('.'))])
+#  synapser::synStore(synapser::File(fi,parentId=parentid,annotations=list(resourceType='analysis',isMultiSpecimen='TRUE',isMultiIndividual='TRUE')),used=c(deconv_scores,metaviper_scores),executed=this.script)
+```

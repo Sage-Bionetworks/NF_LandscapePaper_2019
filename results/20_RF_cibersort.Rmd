@@ -50,6 +50,8 @@ library(gridExtra)
 
 #renv::init()
 library(glue)
+library(ggridges)
+library(viridis)
 
 #Synapser
 synLogin()
@@ -91,7 +93,7 @@ This document describes training a random forest model using sample-wise immune 
 * quick training /prediction speeds
 * low bias and moderate variance
 
-Our goal is to find important latent variables that classify the various tumorTypes. We will then inspect the classifying features to find meaningful genesets that distinguish between two tumortypes.
+Our goal is to find important immune celltypes that correlate well with each tumortypes, and thus can be used as a signature. We will then inspect the classifying features (immune subtypes) to find meaningful identifiers that distinguish between two tumortypes.
 
 Tumortypes represented in the data:
 
@@ -159,7 +161,7 @@ We first trained an initial model on the training dataset using iterative _mtrys
 
 Below are details of our initial model.
 
-```{r create model and check fit, eval=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+```{r create model and check fit, eval=TRUE, fig.height=8, fig.width=8, message=FALSE, warning=FALSE}
 
 
 # 10 fold validation control
@@ -195,23 +197,24 @@ print("Check the fit of the initial model")
 Fit_init
 
 #plot the model
-theme_update(text = element_text(size=20))
+theme_update(text = element_text(size=15))
 ggplot(Fit_init$results,  aes(x=mtry, y=Accuracy)) +
-  geom_point(aes(size=2)) +
+  geom_point(aes(size=1)) +
   geom_line() +
   coord_cartesian(ylim = c(0,1)) +
-  labs(main="The model", x="mtry :: Number of features for each split", y= "Accuracy of the model") 
+  labs(main="The model", x="mtry :: Number of features for each split", y= "Accuracy of the model") +
+  theme(legend.position = "none")
 
-print("Check the clustering of the samples according to the model")
+print("Check the clustering of the samples according to the initial model")
 MDSplot(Fit_init$finalModel, 
         as.factor(training$tumorType), 
         k=2, palette=NULL, 
         pch=as.numeric(training$tumorType), 
-        cex=2, 
-        cex.axis= 1.5,
-        cex.lab = 1.5,
-        cex.main = 1.5,
-        main= "MDS Plot of the classified training set")
+        cex=1.1, 
+        cex.axis= 1.1,
+        cex.lab = 1.1,
+        cex.main = 1.1,
+        main= "MDS Plot of the initial training set")
 legend("topright",
        inset=0.01, 
        cex= 1.0,
@@ -266,7 +269,8 @@ list_init <- as.data.frame(importance$importance)
 
 ## Iterating over models
 
-We observed that tuning our model did not significantly improve the performance of the initial model. As a result we tried an ensemble approach and plot the performances of all possible models.
+We observed that tuning our model did not significantly improve the performance of the initial model. As a result we tried an ensemble approach where we ran 500 randomized iterations of our forest. In each iteration, a new randomly sampled training set and testing set was generated to generate an independent model. We then plotted the performance of all the 500 independent models to get a distribution of F1 scores for each class. A higher mean F1 score for a class overall would mean a higher classification accuracy for that class.
+
 
 ```{r Make a model iteratively, fig.width=8, fig.height=8, message=FALSE, warning=FALSE}
 
@@ -331,100 +335,71 @@ perf_new_long <- gather(perf_new, iteration, All_scores, F1:Iter500, factor_key=
 
 par(mfrow=c(2,1)) 
 
-theme_update(text = element_text(size = 10))
+theme_update(legend.text = element_text(size=8), 
+      axis.text.x  = element_text(size=10),
+      axis.text.y = element_text(size=10),
+      text = element_text(size=10))
 
-ggplot(perf_new_long, aes(x=All_scores, fill=Class, color=Class)) + 
+ggplot(perf_new_long, aes(x=All_scores, fill=Class, color= Class)) + 
   geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
-  #geom_density(alpha=.2) +
   theme(legend.position="top") +
-  #scale_color_manual(values=allcolors[[1]][12:18])
   scale_color_brewer(palette="Spectral")+
   scale_fill_brewer(palette="Spectral") +
-  labs(title="Histogram of F1 scores for iterations of RF",x="F1 score", y = "Counts") +
-  theme(text = element_text(size=10)) +
-  theme(axis.text.x  = element_text(size=10)) +
-  theme(axis.text.y = element_text(size=10))
+  labs(title="Histogram of raw F1 scores for iterations of RF",x="F1 scores from different iterations of RF", y = "Number of RF iterations with a given F1 score") +
+  xlim(0, 1)
 
 ggplot(perf_new_long, aes(x=All_scores, fill=Class, color=Class)) + 
   #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
-  geom_density(alpha=.2) +
+  geom_density(alpha=0.5) +
   theme(legend.position="top") +
   #scale_color_manual(values=allcolors[[1]][12:18])
   scale_color_brewer(palette="Spectral")+
   scale_fill_brewer(palette="Spectral") +
-  labs(title="Density plot of F1 scores for iterations of RF",x="F1 score", y = "Counts") +
-  theme(text = element_text(size=10)) +
-  theme(axis.text.x  = element_text(size=10)) +
-  theme(axis.text.y = element_text(size=10))
-  
+  labs(title="Density plot of F1 scores for iterations of RF",x="F1 scores from different iterations of RF", y = "Proportions of RF iterations with a given F1 score") +
+  xlim (0,1)
 
 ```
 
 ## Feature Importance evaluation
 
-We also saved the features deemed important for each of the iterations of the model for each of our classes. We plot the scores of each of the features in each of our models.
+From our independently generated 500 models, we saved the importance scores of all the features for each of the classes. We then plotted the distribution of importance scores of each of the features to estimate the mean importance of a particular feature for that class. The density plots of importance scores of all the features (immune cell types) for a specific class (tumor type) are show below:
 
 ```{r histogram of features, fig.width=8, fig.height=8, message=FALSE, warning=FALSE}
 
-# Plot a distribution of importance of features
 
+# Filter Importance scores of features for each Class
 features_cNF <- as.data.frame(sapply(FeatureList, `[[`, 1))
-features_cNF$Class <- rownames(FeatureList[[1]])
-cNF_long <- gather(features_cNF, iteration, All_scores, V1:V500, factor_key=TRUE)
-
-theme_update(text = element_text(size = 10))
-ggplot(cNF_long, aes(x=All_scores, fill=Class, color=Class)) + 
-  #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
-  geom_density(alpha=.2) +
-  theme(legend.position="top") +
-  scale_color_manual(values=color_list[[1]]) +
-  # scale_color_brewer(palette="Spectral")+
-  # scale_fill_brewer(palette="Spectral") +
-  labs(title="Importance of features in cNF",x="Importance", y = "Counts") 
-  
-
 features_MPNST <- as.data.frame(sapply(FeatureList, `[[`, 2))
-features_MPNST$Class <- rownames(FeatureList[[1]])
-MPNST_long <- gather(features_MPNST, iteration, All_scores, V1:V500, factor_key=TRUE)
-ggplot(MPNST_long, aes(x=All_scores, fill=Class, color=Class)) + 
-  #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
-  geom_density(alpha=.2) +
-  theme(legend.position="top") +
-  scale_color_manual(values=color_list[[1]]) +
-  # scale_color_brewer(palette="Spectral")+
-  # scale_fill_brewer(palette="Spectral") +
-  labs(title="Importance of features in MPNST",x="Importance", y = "Counts") 
-
-
 features_NF <- as.data.frame(sapply(FeatureList, `[[`, 3))
-features_NF$Class <- rownames(FeatureList[[1]])
-NF_long <- gather(features_NF, iteration, All_scores, V1:V500, factor_key=TRUE)
-ggplot(NF_long, aes(x=All_scores, fill=Class, color=Class)) + 
-  #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
-  geom_density(alpha=.2) +
-  theme(legend.position="top") +
-  scale_color_manual(values=color_list[[1]]) +
-  # scale_color_brewer(palette="Spectral")+
-  # scale_fill_brewer(palette="Spectral") +
-  labs(title="Importance of features in NF",x="Importance", y = "Counts") 
-
-
 features_pNF <- as.data.frame(sapply(FeatureList, `[[`, 4))
-features_pNF$Class <- rownames(FeatureList[[1]])
-pNF_long <- gather(features_pNF, iteration, All_scores, V1:V500, factor_key=TRUE)
-ggplot(pNF_long, aes(x=All_scores, fill=Class, color=Class)) + 
-  #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
-  geom_density(alpha=.2) +
-  theme(legend.position="top") +
+
+
+# Plot the distribution of importance scores of features
+ridgeplot_classes <- function(featurelist, dataframe, class){
+  #add Class column
+  dataframe$Celltype <- rownames(featurelist[[1]])
+  #make long df
+  dataframe_long <- gather(dataframe, iteration, All_scores, V1:V500, factor_key=TRUE)
+  #make ridgeplot
+  theme_update(legend.text = element_text(size=8), 
+      axis.text.x  = element_text(size=15),
+      axis.text.y = element_text(size=10),
+      text = element_text(size=15))
+  ggplot(dataframe_long, aes(x=All_scores, y=Celltype, fill=Celltype)) + 
+  geom_density_ridges(scale = 3, rel_min_height = 0.01, alpha= 0.5)  +
+  theme(legend.position="none") +
   scale_color_manual(values=color_list[[1]]) +
-  # scale_color_brewer(palette="Spectral")+
-  # scale_fill_brewer(palette="Spectral") +
-  labs(title="Importance of features in pNF",x="Importance", y = "Counts")
+  labs(title= glue('{class}'),x="Importance Score", y = "Proportion of RFs") +
+  xlim(-10,100)
+}
+
+ridgeplot_classes(FeatureList, features_cNF, "Cutaneous Neurofibroma")
+ridgeplot_classes(FeatureList, features_MPNST, "MPNST")
+ridgeplot_classes(FeatureList, features_NF, "Neurofibroma")
+ridgeplot_classes(FeatureList, features_pNF, "Plexiform Neurofibroma")
 
 
-
-
-save(FeatureList, perf_new, file = "RF_cibersort.RData")
+#save(FeatureList, perf_new, file = "RF_cibersort.RData")
   
 ```
 

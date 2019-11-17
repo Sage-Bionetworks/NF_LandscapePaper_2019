@@ -85,11 +85,16 @@ With the top 10 most impactful LVs for each random forest prediction, we can plo
 
 
 ```{r, warning=FALSE}
-corVals=combined%>%subset(latent_var%in%unique(unlist(top10)))%>%
+corVals=combined%>%#subset(latent_var%in%unique(unlist(top10)))%>%
     group_by(latent_var,gene)%>%
   summarize(corVal=cor(value,metaviperscore,use='pairwise.complete.obs'),numSamps=n_distinct(specimenID))
 
 corVals
+##let's store this in Synapse
+tab<-synBuildTable('Metaviper Latent-Variable Correlations',parent='syn21046734',corVals)
+synStore(tab)
+
+corVals<-corVals%>%subset(latent_var%in%unique(unlist(top10)))
 ```
 
 

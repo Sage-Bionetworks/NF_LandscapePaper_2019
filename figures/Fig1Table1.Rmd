@@ -1,0 +1,66 @@
+---
+title: "Figure 1 and Table 1"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(synapser)
+synLogin()
+
+
+```
+
+## Table 1
+To generate table 1 we need to collect all mRNA-seq and genomic sequencing data we have to summarize.
+
+```{r rna-Seq, warning=FALSE}
+tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
+
+vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex"
+full.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))
+DT::datatable(full.tab)
+```
+
+Now we have to collect the exome seq and WGS data. We have three tables containing gene variant data. All located at a table in `syn21266269`.
+
+```{r variant data,warning=FALSE}
+require(tidyverse)
+tabids<-synTableQuery('select distinct tableId from syn21266269')$asDataFrame()
+
+vars="Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF"
+exome.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))%>%
+   subset(gnomAD_AF<0.01)
+
+DT::datatable(exome.tab)
+```
+
+Now we want to count how many samples of each tumor type and whether or not they have sequencing or transcript levels
+
+```{r table 1}
+
+```
+
+## Fig 1 panel 1
+This figure will show the highly variable transcripts and their GO enrichment.
+
+
+```{r transcript heatmap, echo=FALSE}
+library(pheatmap)
+
+```
+
+Now we have some variable genes and want to see what kind of processes they represent. 
+
+```{r kegg/go pathways,echo=FALSE}
+
+```
+

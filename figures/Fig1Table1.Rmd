@@ -69,9 +69,9 @@ samps<-samp.data%>%
   group_by(tumorType)%>%
   summarize(individuals=n_distinct(individualID),samples=n_distinct(specimenID),numGenomic=length(which(hasGenomicData)))
 
-DT::datatable(samps)
 samp.data<-apply(samp.data,2,as.factor)%>%as.data.frame()%>%select(sex,study,hasGenomicData,tumorType)
 
+DT::datatable(samps)
 
 ```
 

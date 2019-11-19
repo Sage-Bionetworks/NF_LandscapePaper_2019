@@ -15,6 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(synapser)
 synLogin()
+require(tidyverse)
 
 
 ```
@@ -25,27 +26,52 @@ To generate table 1 we need to collect all mRNA-seq and genomic sequencing data 
 ```{r rna-Seq, warning=FALSE}
 tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
 
-vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex"
+vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex,isCellLine,transplantationType,study"
 full.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))
-DT::datatable(full.tab)
+
+#full.tab<-full.tab
+#%>%
+red.tab<-subset(full.tab,tumorType%in%c('Malignant peripheral nerve sheath tumor','Neurofibroma','Malignant Peripheral Nerve Sheath Tumor','Plexiform Neurofibroma','Cutaneous Neurofibroma'))%>%
+    subset(isCellLine%in%c(NA,"FALSE"))%>%
+  subset(is.na(transplantationType))
+
+red.tab$tumorType<-gsub("Malignant peripheral nerve sheath tumor",'Malignant Peripheral Nerve Sheath Tumor',red.tab$tumorType)
+
+
 ```
 
-Now we have to collect the exome seq and WGS data. We have three tables containing gene variant data. All located at a table in `syn21266269`.
+Now we have to collect the exome seq and WGS data. We have two tables containing gene variant data. All located at a table in `syn21266269`.
 
 ```{r variant data,warning=FALSE}
-require(tidyverse)
 tabids<-synTableQuery('select distinct tableId from syn21266269')$asDataFrame()
 
 vars="Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF"
 exome.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))%>%
    subset(gnomAD_AF<0.01)
 
-DT::datatable(exome.tab)
 ```
 
 Now we want to count how many samples of each tumor type and whether or not they have sequencing or transcript levels
 
 ```{r table 1}
+samp.data<-red.tab%>%
+  select(individualID,specimenID,tumorType,sex,study)%>%
+  distinct()%>%
+  mutate(hasGenomicData=specimenID%in%exome.tab$specimenID)
+
+samp.data$sex<-gsub('female','Female',gsub('^male','Male',samp.data$sex))
+samp.data$study[is.na(samp.data$study)]<-'CBTTC'
+
+#set this up to be the annotation for the heatmaps
+rownames(samp.data)<-samp.data$specimenID
+
+samps<-samp.data%>%
+  group_by(tumorType)%>%
+  summarize(individuals=n_distinct(individualID),samples=n_distinct(specimenID),numGenomic=length(which(hasGenomicData)))
+
+DT::datatable(samps)
+samp.data<-apply(samp.data,2,as.factor)%>%as.data.frame()%>%select(sex,study,hasGenomicData,tumorType)
+
 
 ```
 
@@ -56,11 +82,63 @@ This figure will show the highly variable transcripts and their GO enrichment.
 ```{r transcript heatmap, echo=FALSE}
 library(pheatmap)
 
+with.var<-red.tab%>%
+    group_by(Symbol)%>%
+    mutate(geneVar=var(zScore))%>%
+    arrange(desc(geneVar))%>%
+    select(Symbol,geneVar)%>%distinct()
+
+as.mat<-subset(red.tab,Symbol%in%with.var$Symbol[1:50])%>%
+  reshape2::acast(Symbol~specimenID,value.var='zScore',fun.aggregate = mean)%>%
+  as.matrix()
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data,filename='fig1heatmap.pdf')
+
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data)
 ```
 
-Now we have some variable genes and want to see what kind of processes they represent. 
+
+## Figure 1 Panels 2/3
+
+Now we have some variable genes and want to see what kind of processes they represent. Do we want to show GO? Kegg? 
 
 ```{r kegg/go pathways,echo=FALSE}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+  
+x <- org.Hs.egSYMBOL2EG
+mapped_genes <- AnnotationDbi::mappedkeys(x)
+xx <- AnnotationDbi::as.list(x[mapped_genes])
+
+genes=with.var$Symbol[1:100]
+inds=match(genes,names(xx))
+genes<-genes[which(!is.na(inds))]
+inds<-inds[which(!is.na(inds))]
+entrez_list=data.frame(gene=genes,entrezgene=unlist(sapply(xx[inds],function(y)y[1])))
+OrgDb <- org.Hs.eg.db # can also be other organisms
+
+gene=entrez_list$entrezgene
+ego <- clusterProfiler::enrichGO(gene          = gene,
+                                 OrgDb         = OrgDb,
+                                 ont           = "BP",
+                                 pAdjustMethod = "BH",
+                                 pvalueCutoff  = 0.05,
+                                 qvalueCutoff  = 0.05, 
+                                 readable      = TRUE)
+
+pdf('fig1_goBPtop100Var.pdf')
+clusterProfiler::dotplot(ego, showCategory=25)
+dev.off()
+clusterProfiler::dotplot(ego, showCategory=25)
+kk <- clusterProfiler::enrichKEGG(gene         = gene,
+                 organism     = 'hsa',
+                 pAdjustMethod = "BH",
+                 pvalueCutoff = 0.05,
+                 qvalueCutoff  = 0.05)
+
+pdf('fig1_keggTop100Var.pdf')
+clusterProfiler::dotplot(kk, showCategory=25)
+dev.off()
+clusterProfiler::dotplot(kk, showCategory=25)
 
 ```
 

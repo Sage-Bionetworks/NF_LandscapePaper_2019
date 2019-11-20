@@ -142,3 +142,23 @@ clusterProfiler::dotplot(kk, showCategory=25)
 
 ```
 
+## Latent variable analysis
+
+Next we need to map to latent variables to see if this is different.
+
+```{r latent variable}
+mvscores=synTableQuery("select * From syn21046991 where isCellLine <> TRUE")$asDataFrame()
+with.var<-mvscores%>%
+    group_by(latent_var)%>%
+    mutate(lvVar=var(value))%>%
+    arrange(desc(lvVar))%>%
+    dplyr::select(latent_var,lvVar)%>%distinct()
+
+as.mat<-subset(mvscores,latent_var%in%with.var$latent_var[1:50])%>%
+  reshape2::acast(latent_var~specimenID,value.var='value',fun.aggregate = mean)%>%
+  as.matrix()
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data,filename='fig1_LV_heatmap.pdf')
+
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data)
+
+```

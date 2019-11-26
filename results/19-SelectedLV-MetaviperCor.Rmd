@@ -165,3 +165,23 @@ apply(cor_cell_types,1,function(x){
 #for(fi in list.files('.')[grep('tions',list.files('.'))])
 #  synapser::synStore(synapser::File(fi,parentId=parentid,annotations=list(resourceType='analysis',isMultiSpecimen='TRUE',isMultiIndividual='TRUE')),used=c(deconv_scores,metaviper_scores),executed=this.script)
 ```
+## Latent variable analysis
+
+Next we need to map to latent variables to see if this is different.
+
+```{r latent variable}
+mvscores=synTableQuery("select * From syn21046991 where isCellLine <> TRUE")$asDataFrame()
+with.var<-mvscores%>%
+    group_by(latent_var)%>%
+    mutate(lvVar=var(value))%>%
+    arrange(desc(lvVar))%>%
+    dplyr::select(latent_var,lvVar)%>%distinct()
+
+as.mat<-subset(mvscores,latent_var%in%with.var$latent_var[1:50])%>%
+  reshape2::acast(latent_var~specimenID,value.var='value',fun.aggregate = mean)%>%
+  as.matrix()
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data,filename='fig2heatmap.pdf')
+
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data)
+
+```

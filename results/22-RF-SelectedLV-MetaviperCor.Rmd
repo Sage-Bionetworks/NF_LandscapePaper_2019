@@ -1,5 +1,5 @@
 ---
-title: "22-Selected LV-Metaviper Cors"
+title: "22-RF Selected LV-Metaviper Cors"
 author: "Sara Gosline"
 date: "`r Sys.Date()`"
 output:
@@ -46,22 +46,26 @@ samps<-intersect(dtab$specimenID,mtab$specimenID)
 #get RF-selected latent variables
 lvs<-synTableQuery("select * from syn21318452")$asDataFrame()%>%
   rename(latent_var='LatentVar')%>%
-  left_join(rftab,by='latent_var')
+  select(-c(ROW_ID,ROW_VERSION))
+
 
 mp_res<-dtab%>%
   subset(specimenID%in%samps)%>%
-  select(latent_var,value,specimenID,diagnosis)%>%
-  left_join(rftab,by='latent_var')
+  select(latent_var,value,specimenID,tumorType)%>%
+  right_join(lvs,by='latent_var')
 
-combined<-mp_res%>%ungroup()%>%inner_join(mtab,by='specimenID')
+combined<-mtab%>%
+  select(specimenID,metaviperscore,gene,sex)%>%distinct()%>%
+  right_join(mp_res,by='specimenID')
+
 
 #now compute some basic stats
-mp_stats<-mp_res%>%
-  rowwise()%>%mutate(MaxVal=max(`Cutaneous Neurofibroma`,`Plexiform Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,Neurofibroma))%>%
-  rowwise()%>%
-  mutate(MeanVal=mean(c(`Cutaneous Neurofibroma`,`Plexiform Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,Neurofibroma)))
+#mp_stats<-mp_res%>%
+#  rowwise()%>%mutate(All=max(`Cutaneous Neurofibroma`,`Plexiform Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,Neurofibroma))%>%
+#  rowwise()%>%
+#  mutate(MeanVal=mean(c(`Cutaneous Neurofibroma`,`Plexiform Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,Neurofibroma)))
 
-DT::datatable(mp_stats)
+#DT::datatable(mp_stats)
 ```
 
 
@@ -76,7 +80,7 @@ corVals=combined%>%#subset(latent_var%in%unique(unlist(top10)))%>%
 
 corVals
 ##let's store this in Synapse
-tab<-synBuildTable('Top10 Metaviper Latent-Variable Correlations',parent='syn21046734',corVals)
+tab<-synBuildTable('RF-selected LVs correlated with Metaviper Activity',parent='syn21046734',corVals)
 synStore(tab)
 
 #corVals<-corVals%>%subset(latent_var%in%unique(unlist(top10)))
@@ -89,13 +93,13 @@ synStore(tab)
 require(ggplot2)
 
 ##first re-order variables to plot
-top.df<-mp_stats%>%rename(All='MeanVal')%>%
-  select(-c(specimenID,diagnosis,value,MaxVal))%>%
-  gather(key="disease",value="importance",-latent_var)%>%unique()
+top.df<-mp_res%>%
+  select(-c(specimenID,tumorType,value))%>%
+  gather(key="tumorType",value="top40",-latent_var)%>%unique()
 
 p<-corVals%>%
               ungroup()%>%
-  subset(latent_var%in%unique(unlist(lvs)))%>%
+  subset(latent_var%in%unique(top.df$latent_var))%>%
           #    mutate(LatentVariable = stringr::str_trim(as.character(latent_var), 20))%>%
               ggplot()+geom_boxplot(aes(x=latent_var,y=corVal))+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ggtitle("Correlation of metaviper proteins with lv")
 print(p)
@@ -121,7 +125,6 @@ DT::datatable(cor_cell_types)
 
 apply(cor_cell_types,1,function(x){
   ct=x[['latent_var']]
-#  m=x[['method']]
 
   #for each gene and cell type
   genes=subset(corVals,latent_var==ct)%>%
@@ -137,13 +140,17 @@ apply(cor_cell_types,1,function(x){
   }
 
   scores=subset(combined,gene%in%genes$gene)%>%subset(latent_var==ct)
-
+  dis= subset(top.df,latent_var==ct)%>%
+          subset(top40=='Y')%>%
+          select(tumorType)%>%
+          unique()
+  paste(collapse=',')
   p2<- ggplot(scores)+
       geom_point(aes(x=value,y=metaviperscore,
           col=gene,shape=tumorType))+
   #  scale_x_log10()+
-      ggtitle(paste(ct,'correlation >',new.corthresh,'\n',
-        subset(top.df,latent_var==ct)%>%select(disease)%>%unlist()%>%paste(collapse=',')))
+      ggtitle(paste(ct,'correlation >',new.corthresh,'\n',paste(unlist(dis),collapse=',')))
+       
   cat(ct)##print out so we can search
   print(p2)
  # ggsave(paste0(m,'predictions of',gsub(" ","",gsub("/","",ct)),'cor',new.corthresh,'.pdf'))

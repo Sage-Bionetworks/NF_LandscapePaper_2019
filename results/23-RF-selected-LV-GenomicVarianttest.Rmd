@@ -81,6 +81,7 @@ mp_res<-mp_res%>%
 
 ```
 
+
 # Retrieve Variant Data
 
 Let's retrieve the LV data and summarize how many genes have mutations across samples.
@@ -114,7 +115,7 @@ DT::datatable(gene.count)
 Now we can loop through every tumor type and gene with a Wilcoxon Rank Sum Test and correct for multiple testing for each LV.
 
 ```{r, warning=FALSE}
-red.genes<-c("NF1","SUZ12","CDKN2A","EED")##for testing
+#red.genes<-c("NF1","SUZ12","CDKN2A","EED")##for testing
 
 ##first spread the WT/Mutated values
 vals<-tab%>%subset(Hugo_Symbol%in%top.genes$Hugo_Symbol)%>%

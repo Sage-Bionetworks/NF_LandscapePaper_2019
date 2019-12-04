@@ -1,0 +1,167 @@
+---
+title: "21-Top Latent Variable - Tumor Deconvolution Correlation"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+##compare tumor immune scores to lv expression
+
+library(synapser)
+synLogin()
+library(tidyverse)
+
+deconv_scores='syn20710536'
+```
+
+## Immune predictions correlated with multiplier latent variable expression
+
+First we get the LV multiplier values from the nf-lv-viz repo and deconvolution predictions from Synapse. We filter the LVs based on those in `syn21315356`.
+
+```{r, warning=FALSE}
+#get immune predictions
+dtab<-synapser::synTableQuery(paste('select * from',deconv_scores))$asDataFrame()%>%
+  rename(immScore='score')
+
+##get latent variable scores
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$filepath %>% 
+  readr::read_csv() %>% 
+  filter(!is.na(tumorType),
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005"))
+
+#get RF-selected latent variables
+lvs<-synTableQuery("select * from syn21318452")$asDataFrame()$LatentVar
+
+
+dtab<-subset(dtab,method!='xcell')
+
+combined=dtab%>%select(c(cell_type,method,specimenID,immScore))%>%
+  left_join(subset(mp_res,latent_var%in%lvs),by='specimenID')
+```
+
+Then we can compute the correlation of each cell type measurement with each protein
+```{r, warning=FALSE}
+corVals=combined%>%group_by(cell_type,latent_var,method)%>%summarize(corVal=cor(immScore,value,method = "spearman"))
+
+DT::datatable(corVals)
+```
+
+
+
+## Plotting LV correlations
+
+We are interested in particular protein signaling activity that might give rise to specific immune phonetypes.
+
+```{r, warning=FALSE}
+##now how do we bracket them?
+##plot correlation distributions by cell type and method. 
+require(ggplot2)
+p<-ggplot(corVals)+geom_boxplot(aes(x=cell_type,y=corVal,fill=method))+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ggtitle("Correlation of MultiPLIER Latent Variables with predicted cell type")
+print(p)
+```
+
+There are some latent variables that show up as highly correlated. By choosing a threshold, we can evaluate what they are in more detail.
+
+```{r, warning=FALSE}
+corthresh=0.6
+
+##now filter to the cell types with correlated latent variables (or anticorrelated)
+cor_cell_types=subset(corVals,abs(corVal)>corthresh)%>%
+  ungroup()%>%
+  group_by(latent_var)%>%
+  mutate(numTypes=n_distinct(cell_type))%>%
+  subset(numTypes>1)%>%
+  mutate(cell_types=paste(unique(cell_type),collapse=','))%>%
+  ungroup()%>%
+  select(latent_var,method,cell_types)%>%unique()
+print(paste('we found',nrow(cor_cell_types),'latent variables/methods with some cell types with correlation greater than',corthresh))
+
+DT::datatable(cor_cell_types)
+```
+
+## Plots of LVs with correlated immune cell types
+
+Here we iterate through each of the LVs with correlated immune cell types and plot
+
+### Cibersort-correlated cell types
+
+First we plot the cibersort
+
+```{r cor cell type plots}
+
+apply(subset(cor_cell_types,method=='cibersort'),1,function(x){
+  ct=x[['latent_var']]
+  m=x[['method']]
+
+cat(ct)
+  #for each gene and cell type
+  lvs=subset(corVals,latent_var==ct)%>%
+        subset(abs(corVal)>corthresh)%>%
+    subset(method==m)%>%arrange(desc(corVal))%>%
+      ungroup()
+
+    if(nrow(lvs)>12){
+    new.corthresh=format(lvs$corVal[15],digits=3)
+    lvs=lvs[1:12,]
+  }else{
+    new.corthresh=corthresh
+  }
+
+  scores=subset(combined,cell_type%in%lvs$cell_type)%>%
+      subset(latent_var==ct)%>%
+      subset(method==m)
+
+  p2<- ggplot(scores %>% mutate(latent_var = stringr::str_trunc(latent_var, 30)))+
+      geom_point(aes(x=immScore,y=value,
+          col=cell_type,shape=tumorType))+
+  #  scale_x_log10()+
+      ggtitle(paste(m,'predictions of',ct,'correlation >',new.corthresh))
+  print(p2)
+})
+
+
+```
+
+### MCPCOUNTER-correlated cell types
+
+First we plot the mcp-counter
+```{r mcpcounter cell type plots}
+
+apply(subset(cor_cell_types,method=='mcp_counter'),1,function(x){
+  ct=x[['latent_var']]
+  m=x[['method']]
+
+cat(ct)
+  #for each gene and cell type
+  lvs=subset(corVals,latent_var==ct)%>%
+        subset(abs(corVal)>corthresh)%>%
+    subset(method==m)%>%arrange(desc(corVal))%>%
+      ungroup()
+
+    if(nrow(lvs)>12){
+    new.corthresh=format(lvs$corVal[15],digits=3)
+    lvs=lvs[1:12,]
+  }else{
+    new.corthresh=corthresh
+  }
+
+  scores=subset(combined,cell_type%in%lvs$cell_type)%>%
+      subset(latent_var==ct)%>%
+      subset(method==m)
+
+  p2<- ggplot(scores %>% mutate(latent_var = stringr::str_trunc(latent_var, 30)))+
+      geom_point(aes(x=immScore,y=value,
+          col=cell_type,shape=tumorType))+
+    scale_x_log10()+
+      ggtitle(paste(m,'predictions of',ct,'correlation >',new.corthresh))
+  print(p2)
+})
+```

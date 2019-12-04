@@ -130,14 +130,6 @@ ggplot(data = mp_res_tidy) +
 
 It is probably a safe assumption that (at least for subtyping these tumors), the latent variables with high variance across the cohort are the most "interesting." We won't filter these out a priori because we have some downstream analyses that might use te low sd data as well. 
 
-```{r eval=FALSE, include=FALSE}
-
-# mp_res_tidy_filt <- mp_res_tidy %>% 
-#   filter(sd_value > 0.05)
-# 
-# mp_res_filt <- mp_res[rownames(mp_res) %in% unique(mp_res_tidy_filt$latent_var),]
-
-```
 
 ### Filter by Correlation
 

@@ -12,10 +12,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(cowplot)
 library(synapser)
 synLogin()
 
-mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read_csv()
+
+
+
+mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read_csv() %>% filter(!is.na(tumorType))
 
 plier_model <- readr::read_rds(synGet("syn18689545")$path) ## Provided by the CCDL (Jaclyn Taroni, Casey Greene, et al)
 
@@ -59,6 +63,26 @@ mp_res %>%
 
 ggsave("lv_boxplot.png", height = 5, width = 8)
 ggsave("lv_boxplot.pdf", height = 5, width = 8)
+
+```
+
+
+```{r}
+
+source('https://raw.githubusercontent.com/RainCloudPlots/RainCloudPlots/master/tutorial_R/R_rainclouds.R')[1:80]
+
+mp_res %>% 
+  mutate(tumor_abbr = case_when(tumorType == "Malignant Peripheral Nerve Sheath Tumor" ~ "MPNST",
+                                tumorType == "Neurofibroma" ~ "NF",
+                                tumorType == "Plexiform Neurofibroma" ~ "pNF",
+                                tumorType == "Cutaneous Neurofibroma" ~ "cNF")) %>% 
+  ggplot(.,aes(x=tumor_abbr,y=value, fill = tumor_abbr, colour = tumor_abbr))+
+  geom_flat_violin(position = position_nudge(x = .25, y = 0),adjust =2, trim = FALSE)+
+  geom_point(position = position_jitter(width = .15), size = .25)+
+  geom_boxplot(aes(x = tumor_abbr, y = value),outlier.shape = NA, alpha = 0.3, width = .1, colour = "BLACK", position = position_nudge(x = .25, y = 0),adjust =2) +
+  ylab('Latent Variable Expression')+xlab('Tumor Type')+coord_flip()+theme_cowplot()+guides(fill = FALSE, colour = FALSE) +
+  scale_colour_brewer(palette = "Dark2")+
+  scale_fill_brewer(palette = "Dark2")
 
 ```
 

@@ -1,0 +1,88 @@
+---
+title: "Untitled"
+author: "Robert Allaway"
+date: "12/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(cowplot)
+library(synapser)
+synLogin()
+
+
+
+
+mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read_csv() %>% filter(!is.na(tumorType))
+
+plier_model <- readr::read_rds(synGet("syn18689545")$path) ## Provided by the CCDL (Jaclyn Taroni, Casey Greene, et al)
+
+
+plier_loadings <- plier_model$Z 
+colnames(plier_loadings) <- rownames(plier_model$B)
+
+plier_cor <- cor(plier_loadings) 
+
+plier_cor_tidy <- plier_cor %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column('lv1') %>% 
+  tidyr::gather("lv2","cor",-lv1) %>% 
+  filter(lv1 != lv2) %>% 
+  distinct() 
+
+ggplot(data = plier_cor_tidy) + 
+  geom_density(aes(x = cor), color = 'red') +
+  labs(x = "LV intercorrelation (Pearson)", y = "Density") +
+  theme_bw()
+
+ggsave("lv_intercorrelation_supplemental.png", height = 5, width = 8)
+ggsave("lv_intercorrelation_supplemental.pdf", height = 5, width = 8)
+
+```
+
+And toss out latent variables with a Pearson correlation >0.5 to other latent variables.
+ 
+```{r fig.height=3}
+mp_res %>% 
+  group_by(latent_var) %>% 
+  mutate(sdev = sd(value)) %>% 
+  mutate(lv_lab = stringr::str_trunc(latent_var, 30, ellipsis = "...")) %>% 
+  ungroup() %>% 
+  filter(sdev > quantile(sdev, 0.95)) %>% 
+  ggplot(.) +
+  geom_boxplot(aes(x = fct_reorder(lv_lab,-value, sd, .desc = T), y = value)) +
+  labs(x = "Latent Variable", y = "LV Expression") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7))
+
+ggsave("lv_boxplot.png", height = 5, width = 8)
+ggsave("lv_boxplot.pdf", height = 5, width = 8)
+
+```
+
+
+```{r}
+
+source('https://raw.githubusercontent.com/RainCloudPlots/RainCloudPlots/master/tutorial_R/R_rainclouds.R')
+
+mp_res %>% 
+  mutate(tumor_abbr = case_when(tumorType == "Malignant Peripheral Nerve Sheath Tumor" ~ "MPNST",
+                                tumorType == "Neurofibroma" ~ "NF",
+                                tumorType == "Plexiform Neurofibroma" ~ "pNF",
+                                tumorType == "Cutaneous Neurofibroma" ~ "cNF")) %>% 
+  ggplot(.,aes(x=tumor_abbr,y=value, fill = tumor_abbr, colour = tumor_abbr))+
+  geom_flat_violin(position = position_nudge(x = .25, y = 0),adjust =2, trim = FALSE)+
+  geom_point(position = position_jitter(width = .15), size = .25)+
+  geom_boxplot(aes(x = tumor_abbr, y = value),outlier.shape = NA, alpha = 0.3, width = .1, colour = "BLACK", position = position_nudge(x = .25, y = 0),adjust =2) +
+  ylab('Latent Variable Expression')+xlab('Tumor Type')+coord_flip()+theme_cowplot()+guides(fill = FALSE, colour = FALSE) +
+  scale_colour_brewer(palette = "Dark2")+
+  scale_fill_brewer(palette = "Dark2")
+
+```
+

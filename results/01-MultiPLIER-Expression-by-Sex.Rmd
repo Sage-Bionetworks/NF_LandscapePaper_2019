@@ -22,7 +22,8 @@ First, import packages to process and plot the data. We'll use `infer` to perfor
 
 
 ```{r message=FALSE, warning=FALSE}
-library(feather)
+library(synapser)
+synLogin()
 library(dplyr)
 library(purrr)
 library(tidyr)
@@ -30,9 +31,9 @@ library(infer)
 library(stringr)
 library(ggbeeswarm)
 
-fn <- tempfile(pattern = "", fileext = ".feather")
-download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = fn)
-mp_res<-read_feather(fn) %>% filter(sex != "NA", isCellLine != "TRUE")
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$filepath %>% 
+  readr::read_csv() %>% 
+  filter(!is.na(sex)) 
 
 ```
 

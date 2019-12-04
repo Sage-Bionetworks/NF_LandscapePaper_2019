@@ -1,0 +1,187 @@
+---
+title: "19-Selected LV-Metaviper Cors"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+##compare tumor immune scores to metaviper predictions
+
+require(synapser)
+synLogin()
+require(tidyverse)
+
+mp_scores='syn21046991'
+metaviper_scores='syn21259610'
+rf_mp='syn21222255'
+
+```
+
+### Latent Variables active in Random Forests
+
+First we get the metaviper predictions, LV scores, and Random Forest weights from Synapse
+
+```{r, warning=FALSE}
+#get immune predictions
+dtab<-synapser::synTableQuery(paste('select * from',mp_scores))$asDataFrame()%>%
+  subset(isCellLine!='TRUE')
+
+##get metaviper scores
+mtab<-synapser::synTableQuery(paste('select * from',metaviper_scores))$asDataFrame()
+
+##get rf loadings
+rftab<-synapser::synTableQuery(paste('select * from',rf_mp))$asDataFrame()%>%
+  select(LV_Full,`Cutaneous Neurofibroma`,`Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,`Plexiform Neurofibroma`)%>%
+  mutate(latent_var=gsub('`','',LV_Full))%>%
+  select(-LV_Full)
+
+samps<-intersect(dtab$specimenID,mtab$specimenID)
+
+mp_res<-dtab%>%
+  subset(specimenID%in%samps)%>%
+  group_by(latent_var) %>%
+  mutate(sd_value = sd(value)) %>%
+  filter(sd_value > 0.05) %>%
+  ungroup()%>%
+  select(latent_var,value,specimenID,sd_value,diagnosis)%>%
+  left_join(rftab,by='latent_var')
+
+combined<-mp_res%>%ungroup()%>%inner_join(mtab,by='specimenID')
+
+#now compute some basic stats
+mp_stats<-mp_res%>%
+  rowwise()%>%mutate(MaxVal=max(`Cutaneous Neurofibroma`,`Plexiform Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,Neurofibroma))%>%
+  rowwise()%>%
+  mutate(MeanVal=mean(c(`Cutaneous Neurofibroma`,`Plexiform Neurofibroma`,`Malignant Peripheral Nerve Sheath Tumor`,Neurofibroma)))
+
+DT::datatable(mp_stats)
+```
+
+We can now see which latent variables seem to be 'active' in various random forests. Either uniquely for each tumor type or across the board. Let's take the top 10 across the various tumor types as well as the highest mean value
+
+```{r Top LVs}
+
+cols=c("Cutaneous Neurofibroma", "Neurofibroma", 'Malignant Peripheral Nerve Sheath Tumor',"Plexiform Neurofibroma","MeanVal")
+
+top10<-do.call(cbind,lapply(cols,function(x){
+  nrf<-rename(mp_stats,dis=x)%>%
+    select(dis,latent_var)%>%distinct()%>%
+    arrange(desc(dis))%>%select(latent_var)
+  nrf[1:10,1]
+}))
+names(top10)<-cols
+
+DT::datatable(top10)
+```
+
+### Plotting protein correlations
+With the top 10 most impactful LVs for each random forest prediction, we can plot those metaviper proteins that correlate with them. 
+
+
+```{r, warning=FALSE}
+corVals=combined%>%#subset(latent_var%in%unique(unlist(top10)))%>%
+    group_by(latent_var,gene)%>%
+  summarize(corVal=cor(value,metaviperscore,use='pairwise.complete.obs'),numSamps=n_distinct(specimenID))
+
+corVals
+##let's store this in Synapse
+tab<-synBuildTable('Metaviper Latent-Variable Correlations',parent='syn21046734',corVals)
+synStore(tab)
+
+corVals<-corVals%>%subset(latent_var%in%unique(unlist(top10)))
+```
+
+
+```{r, warning=FALSE}
+##now how do we bracket them?
+##plot correlation distributions by cell type and method.
+require(ggplot2)
+
+##first re-order variables to plot
+top.df<-top10%>%rename(All='MeanVal')%>%gather(key="disease",value="pathway")
+
+p<-corVals%>%
+              ungroup()%>%
+  subset(latent_var%in%unique(unlist(top10)))%>%
+          #    mutate(LatentVariable = stringr::str_trim(as.character(latent_var), 20))%>%
+              ggplot()+geom_boxplot(aes(x=latent_var,y=corVal))+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+ggtitle("Correlation of metaviper proteins with lv")
+print(p)
+```
+
+There are some proteins that show up as highly correlated. By choosing a threshold, we can evaluate what they are in more detail.
+
+These plots represent the top 10 latent variables for a predictor of each tumor type and the proteins that are correlated with them. 
+
+```{r, warning=FALSE}
+corthresh=0.75
+
+##now filter to the cell types with correlated proteins
+cor_cell_types=subset(corVals,corVal>corthresh)%>%
+  subset(latent_var%in%unique(unlist(top10)))%>%
+      ungroup()%>%
+  select(latent_var)%>%
+  distinct()
+
+print(paste('we found',nrow(cor_cell_types),'lvs with some protein correlation greater than',corthresh))
+
+DT::datatable(cor_cell_types)
+
+apply(cor_cell_types,1,function(x){
+  ct=x[['latent_var']]
+#  m=x[['method']]
+
+  #for each gene and cell type
+  genes=subset(corVals,latent_var==ct)%>%
+        subset(corVal>corthresh)%>%
+   arrange(desc(corVal))%>%
+      ungroup()
+
+    if(nrow(genes)>12){
+    new.corthresh=format(genes$corVal[12],digits=3)
+    genes=genes[1:12,]
+  }else{
+    new.corthresh=corthresh
+  }
+
+  scores=subset(combined,gene%in%genes$gene)%>%subset(latent_var==ct)
+
+  p2<- ggplot(scores)+
+      geom_point(aes(x=value,y=metaviperscore,
+          col=gene,shape=tumorType))+
+  #  scale_x_log10()+
+      ggtitle(paste(ct,'correlation >',new.corthresh,'\n',
+        subset(top.df,pathway==ct)%>%select(disease)%>%unlist()%>%paste(collapse=',')))
+  print(p2)
+ # ggsave(paste0(m,'predictions of',gsub(" ","",gsub("/","",ct)),'cor',new.corthresh,'.pdf'))
+})
+
+#parentid='syn20710537'
+#for(fi in list.files('.')[grep('tions',list.files('.'))])
+#  synapser::synStore(synapser::File(fi,parentId=parentid,annotations=list(resourceType='analysis',isMultiSpecimen='TRUE',isMultiIndividual='TRUE')),used=c(deconv_scores,metaviper_scores),executed=this.script)
+```
+## Latent variable analysis
+
+Next we need to map to latent variables to see if this is different.
+
+```{r latent variable}
+mvscores=synTableQuery("select * From syn21046991 where isCellLine <> TRUE")$asDataFrame()
+with.var<-mvscores%>%
+    group_by(latent_var)%>%
+    mutate(lvVar=var(value))%>%
+    arrange(desc(lvVar))%>%
+    dplyr::select(latent_var,lvVar)%>%distinct()
+
+as.mat<-subset(mvscores,latent_var%in%with.var$latent_var[1:50])%>%
+  reshape2::acast(latent_var~specimenID,value.var='value',fun.aggregate = mean)%>%
+  as.matrix()
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data,filename='fig2heatmap.pdf')
+
+pheatmap(as.mat,cellwidth = 10,cellheight = 10,annotation_col=samp.data)
+
+```

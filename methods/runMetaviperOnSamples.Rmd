@@ -1,0 +1,103 @@
+---
+title: "Run MetaViper on NF1 Samples"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+
+```
+
+## First get all gene expression data
+Gene expression data is spread across four synapse projects:
+- the CNF dataset
+- the JHU Biobank
+- the CBTTC dataset
+- the WashU biobank
+
+Since permissions are dispersed, we need to collect all the data. 
+
+```{r table, warning=FALSE}
+tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
+
+vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex"
+full.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))
+
+
+
+```
+
+## Run Metaviper
+
+To run metaviper we need to load all the aracne networks and run one-by-one. This requires a bit of prep. First we have to load the aracne networks, and map the table to entrez identifiers. 
+
+```{r viper prep, echo=FALSE, warning=FALSE}
+#get aracne networks
+ require(aracne.networks)
+                #get aracne networks
+net.names <- data(package="aracne.networks")$results[, "Item"]
+all.networks <- lapply(net.names,function(x) get(x))
+names(all.networks) <- net.names
+
+#now map the gene identifiers
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+x <- org.Hs.egSYMBOL2EG
+mapped_genes <- AnnotationDbi::mappedkeys(x)
+xx <- AnnotationDbi::as.list(x[mapped_genes])
+
+genes=unique(full.tab$Symbol)
+inds=match(genes,names(xx))
+genes<-genes[which(!is.na(inds))]
+inds<-inds[which(!is.na(inds))]
+entrez_list=data.frame(gene=genes,entrezgene=unlist(sapply(xx[inds],function(y)y[1])))
+```
+
+Then we can actually run the tool!
+```{r run viper, echo=FALSE, warning=FALSE}
+#now create the data matrix
+require(dplyr)
+tidied.df<-full.tab%>%rename(gene='Symbol')%>%left_join(entrez_list,by='gene')
+
+#tidied.df$specimenID<-make.names(tidied.df$specimenID)
+
+combined.mat<-reshape2::acast(tidied.df,entrezgene~specimenID,value.var="totalCounts",fun.aggregate=function(x) mean(x,na.rm=T))
+
+#some genes are only quantified in some samples
+missing.genes<-unique(which(is.na(combined.mat),arr.ind=T)[,1])
+
+if(length(missing.genes)>0)
+  combined.mat<-combined.mat[-missing.genes,]
+
+library(viper)
+res <- viper::viper(combined.mat,all.networks)
+
+rdf<-data.frame(res,entrezgene=rownames(res),check.names=F)
+tdf<-tidyr::gather(rdf,key=specimenID,value=metaviperscore,-entrezgene)
+
+gn<-tdf%>%left_join(entrez_list,by='entrezgene')
+pats<-tidied.df%>%select(specimenID,individualID,tumorType,nf1Genotype,sex)%>%distinct()
+
+
+fdf<-gn%>%left_join(pats,by='specimenID')
+```
+
+Now to view results
+```{r results}
+DT::datatable(head(fdf))
+```
+
+Once it's in a data frame we can store back on the Synapse project.
+
+```{r store on synapse,echo=FALSE}
+
+tab<-synBuildTable('Metaviper NF1 Protein scores',parent='syn21046734',fdf)
+synStore(tab)

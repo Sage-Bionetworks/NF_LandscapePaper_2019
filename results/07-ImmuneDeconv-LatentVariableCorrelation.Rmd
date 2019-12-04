@@ -18,7 +18,6 @@ synLogin()
 library(tidyverse)
 
 deconv_scores='syn20710536'
-lv_scores='syn21046991'
 ```
 
 ### Immune predictions correlated with multiplier latent variable expression
@@ -31,10 +30,12 @@ dtab<-synapser::synTableQuery(paste('select * from',deconv_scores))$asDataFrame(
   rename(immScore='score')
 
 ##get latent variable scores
-fn <- tempfile(pattern = "", fileext = ".feather")
-download.file('https://github.com/Sage-Bionetworks/nf-lv-viz/raw/master/data/filt_nf_mp_res.feather', destfile = fn)
-
-mp_res<- feather::read_feather(fn) %>% filter(sex != "NA", isCellLine != "TRUE") 
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$filepath %>% 
+  readr::read_csv() %>% 
+  filter(!is.na(tumorType),
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005"))
 
 dtab<-subset(dtab,method!='xcell')
 
@@ -90,7 +91,7 @@ apply(cor_cell_types,1,function(x){
 
   scores=subset(combined,latent_var%in%lvs$latent_var)%>%subset(cell_type==ct)%>%subset(method==m)
 
-  p2<- ggplot(scores)+
+  p2<- ggplot(scores %>% mutate(latent_var = stringr::str_trunc(latent_var, 30)))+
       geom_point(aes(x=immScore,y=value,
           col=latent_var,shape=tumorType))+
     scale_x_log10()+

@@ -29,11 +29,12 @@ Let's see if there are any correlations between specific variants and immune pop
 
 ```{r,warning=FALSE}
 
-wgs.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT FROM syn20551862")$asDataFrame()
-exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT FROM syn20554939")$asDataFrame()
+wgs.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF FROM syn20551862")$asDataFrame()
+exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF FROM syn20554939")$asDataFrame()
 
-all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT'),
-    select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT'))
+all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'),
+    select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'))%>%
+  subset(gnomAD_AF<0.01)
 
 imm.tab<-synapser::synTableQuery("SELECT * FROM syn20710536")$asDataFrame()%>%
   select(-c(ROW_ID,ROW_VERSION))
@@ -50,7 +51,7 @@ top.genes=tab%>%group_by(tumorType)%>%
       group_by(tumorType,Hugo_Symbol)%>%
     mutate(numMutated=n_distinct(specimenID))%>%
     ungroup()%>%
-  subset(numMutated>3)%>%
+  subset(numMutated>1)%>%
       subset(numMutated<(numSamps-1))%>%
   select(tumorType,Hugo_Symbol,numSamps,numMutated)%>%distinct()
 
@@ -82,6 +83,7 @@ counts<-vals%>%
 
 #so now we have only 
 with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
+  subset(method!='xcell')%>%
     group_by(method,cell_type,gene)%>%
   mutate(pval=t.test(score~status)$p.value)%>%ungroup()%>%
   group_by(cell_type,method)%>%
@@ -129,3 +131,22 @@ for(method in c('cibersort','mcp_counter')){
 
 ## Next steps
 We should look into each individual tumor type, but I was having trouble executing the proper group by's and gave up. Happy for someone else to give it a whirl
+
+
+
+```{r, warning=FALSE}
+
+#this is a failed attempt to group by tumor type
+#with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
+#    group_by(latent_var,tumorType,gene)%>%
+#  mutate(pval=t.test(value~status)$p.value)%>%
+#  ungroup()%>%
+#  group_by(latent_var)%>%
+#  mutate(corP=p.adjust(pval))%>%ungroup()%>%
+#  select(latent_var,tumorType,gene,pval,corP)%>%distinct()
+
+#sig.vals<-subset(with.sig,corP<0.05)
+
+#DT::datatable(sig.vals)
+```
+

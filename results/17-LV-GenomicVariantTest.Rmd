@@ -1,0 +1,166 @@
+---
+title: "17 - LV Genomic Variant Test"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(synapser)
+synLogin()
+library(tidyverse)
+```
+
+# Get Data
+
+This is nearly entirely based on the code in notebook 09 and that in 11. 
+
+We have latent variable expression analysis data
+- [Latent Variable Table](https://www.synapse.org/#!Synapse:syn21046991/tables/)
+
+For this data we are also using any data for which there are gene variants (cNFs, pNFs, MPNSTs):
+- [Exome-Seq variants](https://www.synapse.org/#!Synapse:syn20554939/tables/)
+- [WGS Variants](https://www.synapse.org/#!Synapse:syn20551862/tables/) 
+
+Let's see if there are any LVs that split based on gene variant. Because we're having trouble scaling with the number of latent variables, I only look at variants that occur in less than 5% of the population. notice this is a difference from notebook #11.
+
+```{r,warning=FALSE}
+wgs.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF FROM syn20551862")$asDataFrame()
+exome.vars=synTableQuery("SELECT Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF FROM syn20554939")$asDataFrame()
+
+all.vars<-rbind(select(wgs.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'),
+    select(exome.vars,'Hugo_Symbol','Protein_position','specimenID','IMPACT','gnomAD_AF'))%>%
+  subset(gnomAD_AF<0.01)
+
+
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame()%>%
+  filter(isCellLine != "TRUE")%>%
+  select(latent_var,id,value,specimenID,tumorType,modelOf,diagnosis)
+
+```
+
+# Merge data together
+For the purposes of this analysis we want to have only those samples wtih genomic data and only those latent variables that are highly variable.
+
+```{r, warning=FALSE}
+samps<-intersect(mp_res$specimenID,all.vars$specimenID)
+
+mp_res<-mp_res%>%
+  subset(specimenID%in%samps)%>%
+  group_by(latent_var) %>%
+  mutate(sd_value = sd(value)) %>%
+  filter(sd_value > 0.025) %>%
+  ungroup()
+
+```
+
+# Retrieve Variant Data
+
+Let's retrieve the LV data and evaluate any correlations between scores and tumor size or patient age
+
+```{r,warning=FALSE}
+data.with.var<-mp_res%>%subset(specimenID%in%samps)%>%
+  left_join(all.vars,by='specimenID')
+
+tab<-subset(data.with.var,!tumorType%in%c('Other','High Grade Glioma','Low Grade Glioma'))
+
+top.genes=tab%>%group_by(tumorType)%>%
+  mutate(numSamps=n_distinct(specimenID))%>%
+      group_by(tumorType,Hugo_Symbol)%>%
+    mutate(numMutated=n_distinct(specimenID))%>%
+    ungroup()%>%
+  subset(numMutated>1)%>%
+      subset(numMutated<(numSamps-1))%>%
+  select(tumorType,Hugo_Symbol,numSamps,numMutated)%>%distinct()
+
+gene.count=top.genes%>%group_by(tumorType)%>%mutate(numGenes=n_distinct(Hugo_Symbol))%>%select(tumorType,numGenes)%>%distinct()
+
+DT::datatable(gene.count)
+
+```
+## Test significance of each gene/immune population
+
+Now we can loop through every tumor type and gene
+
+```{r, warning=FALSE}
+red.genes<-c("NF1","SUZ12","CDKN2A","EED")##for testing
+
+vals<-tab%>%#subset(Hugo_Symbol%in%red.genes)%>%
+    mutate(mutated=ifelse(is.na(IMPACT),'WT','Mutated'))%>%
+  select(latent_var,tumorType,value,Hugo_Symbol,specimenID,mutated)%>%
+  distinct()%>%
+  spread(key=Hugo_Symbol,value='mutated',fill='WT')
+
+counts<-vals%>%
+  gather(key=gene,value=status,-c(latent_var,tumorType,value,specimenID))%>% 
+    select(latent_var,tumorType,value,gene,specimenID,status)%>%
+    group_by(latent_var,tumorType,gene)%>%
+    mutate(numVals=n_distinct(status))%>%
+    subset(numVals==2)%>%ungroup()
+
+#so now we have only 
+with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
+    group_by(latent_var,gene)%>%
+  mutate(pval=t.test(value~status)$p.value)%>%ungroup()%>%
+  group_by(latent_var)%>%
+  mutate(corP=p.adjust(pval))%>%ungroup()%>%
+  select(latent_var,gene,pval,corP)%>%distinct()
+
+sig.vals<-subset(with.sig,corP<0.05)
+
+DT::datatable(sig.vals)
+
+```
+
+Interesting! Some genes actually pass p-value correction. What do they look like? Here let's write the messiest possible code to print.
+
+```{r,warning=FALSE}
+
+for(ct in unique(sig.vals$latent_var)){
+    tplot<-sig.vals[which(sig.vals$latent_var==ct),]
+    if(nrow(tplot)==0)
+      next
+    print(tplot)
+    p<-counts%>%
+    subset(latent_var==ct)%>%
+    subset(gene%in%tplot$gene)%>%
+    ggplot(aes(x=gene,y=value,col=status))+
+    geom_boxplot(outlier.shape=NA)+
+    geom_point(position=position_jitterdodge(),aes(group=status))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    ggtitle(paste(ct,'scores'))
+#    if(method=='cibersort')
+#      p<-p+scale_y_log10()
+    print(p)
+  }
+#}
+
+
+```
+
+
+
+## Breaking down by tumor type
+At first glance it seems that a lot of these are separating out cNFs (i.e. mast cell signaling) from other types. However, I'm getting the same error I get in notebook number 11, so am unsure about how to proceed. 
+
+```{r, warning=FALSE}
+
+#this is a failed attempt to group by tumor type
+#with.sig<-counts%>%ungroup()%>%subset(gene%in%top.genes$Hugo_Symbol)%>%
+#    group_by(latent_var,tumorType,gene)%>%
+#  mutate(pval=t.test(value~status)$p.value)%>%
+#  ungroup()%>%
+#  group_by(latent_var)%>%
+#  mutate(corP=p.adjust(pval))%>%ungroup()%>%
+#  select(latent_var,tumorType,gene,pval,corP)%>%distinct()
+
+#sig.vals<-subset(with.sig,corP<0.05)
+
+#DT::datatable(sig.vals)
+```

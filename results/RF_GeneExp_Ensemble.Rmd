@@ -1,0 +1,760 @@
+---
+title: "RF_GeneExp_Ensemble"
+author: "Jineta Banerjee"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    fig_width: 7
+    fig_height: 6
+    fig_caption: true
+    df_print: paged
+    code_folding: hide
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, eval=TRUE, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+
+library(synapser)
+library(synapserutils)
+library(BiocManager)
+
+library(tidyverse)
+library(DT)
+library(colorspace)
+library(RColorBrewer)
+library(wesanderson)
+
+#Random Forest
+library(randomForest)
+library(e1071)
+library(caret)
+library(fastDummies)
+library(doParallel)
+
+
+#plotting
+library(AppliedPredictiveModeling)
+transparentTheme(trans = .4)
+library(pheatmap)
+library(ggridges)
+
+library(AnnotationDbi)
+#library(hgu95av2.db)
+#library(STRINGdb)
+library(gridExtra)
+
+#renv::init()
+library(glue)
+
+#Synapser
+synLogin()
+```
+
+
+```{r make color palette}
+
+## Make colors for plots
+fabcolors = RColorBrewer::brewer.pal(n = 11,name = 'RdGy')
+col1 = RColorBrewer::brewer.pal(n = 10,name = 'PRGn')
+col2 = RColorBrewer::brewer.pal(n = 10,name = 'Spectral')
+col3 = RColorBrewer::brewer.pal(n = 10,name = 'BrBG')
+col4 = RColorBrewer::brewer.pal(n = 10,name = 'PiYG')
+col5 = RColorBrewer::brewer.pal(n = 10,name = 'PuOr')
+col6 = RColorBrewer::brewer.pal(n = 10,name = 'RdBu')
+
+
+allcolors <- c(fabcolors, col1,col2,col3, col4, col5, col6)
+allcolors <- list(allcolors)
+
+morecolors1 <- wes_palette("Darjeeling1", n=4, type = "discrete")
+morecolors1 <- list(morecolors1)
+
+morecolors2 <- wes_palette("Moonrise2", n=3, type = "discrete")
+morecolors2 <- list(morecolors2)
+
+color_list <- c(allcolors, morecolors1, morecolors2)
+
+```
+
+## Introduction
+
+This document describes training a random forest model using gene expression as its input features. We are using normalized RNA-Seq data in NF1 primary tumor samples to train the forest to find the most important classifying genetic features for the four tumor types in NF1. We chose to train a random forest classifier to identify NF tumortypes using the LVs for the following features of the model :
+
+* robustness to high dimensionality data
+* ability to handle unbalanced classes
+* robustness to outliers and non-linear data
+* quick training /prediction speeds
+* low bias and moderate variance
+
+Our goal is to find important genes that classify the various tumorTypes based on their expression patterns. We will then inspect the classifying features to find meaningful genesets that distinguish between two tumortypes.
+
+Tumortypes represented in the data:
+
+* Plexiform Neurofibroma
+* MPNST
+* Cutaneous Neurofibroma
+* Neurofibroma
+
+## Get the data:
+
+```{r download data from Synapse, eval=TRUE, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+
+#download data: rnaseq by institution
+washu <- synTableQuery("SELECT * FROM syn21054125")$asDataFrame() %>%
+  filter(tumorType!="NA",
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005"))
+
+jhubiobank <- synTableQuery("SELECT * FROM syn20812185")$asDataFrame() %>%
+  filter(tumorType!="NA",
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005", "2-004 pNF Cell Line"))  # Taking the 2-004pNF cell line out since it is from a xenograft
+
+cNF <- synTableQuery("SELECT * FROM syn21222341")$asDataFrame() %>%
+  filter(tumorType!="NA",
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005", "2-004 pNF Cell Line"))
+
+cbttc <- synTableQuery("SELECT * FROM syn21222348")$asDataFrame() %>%
+  filter(tumorType!="NA" ,
+         !grepl('xenograft', specimenID, ignore.case = T),
+         !specimenID %in% c("BI386-004","CW225-001","DW356-002",
+                            "JK368-003", "SK436-005", "2-004 pNF Cell Line"))
+
+#Clean up cbttc tumortypes
+cbttc$tumorType[cbttc$tumorType == "Malignant peripheral nerve sheath tumor"] <- "Malignant Peripheral Nerve Sheath Tumor"
+cbttc$tumorType[cbttc$tumorType == "Schwannoma" | 
+                  cbttc$tumorType == "Meningioma" | 
+                  cbttc$tumorType == "Ependymoma"] <- "NF2"
+
+
+#Restrict cbttc dataset to NF1 tumors
+cbttc <- cbttc %>% 
+  dplyr::filter(tumorType != "NF2"  & 
+                  tumorType != "Ganglioglioma" & 
+                  tumorType != "High Grade Glioma" &
+                  tumorType != "Low Grade Glioma" &
+                  tumorType != "Other")
+
+######### Total RNASeq Dataset ######
+
+keep <- c("totalCounts", "Symbol", "zScore", "specimenID", 
+          "individualID", "sex", "consortium", "tumorType", 
+          "isCellLine")
+
+washu <- washu[, keep]
+jhubiobank <- jhubiobank[ , keep]
+cNF <- cNF[, keep]
+cbttc <- cbttc[, keep]
+
+rf_rnaseq <- rbind(washu, jhubiobank, cNF, cbttc) 
+
+
+# Remove cell lines
+rf_rnaseq$isCellLine[is.na(rf_rnaseq$isCellLine)] <- "FALSE"
+rf_rnaseq <- rf_rnaseq[!(rf_rnaseq$isCellLine == "TRUE"),]
+
+# harmonize labels
+rf_rnaseq$sex[rf_rnaseq$sex == "female"] = "Female"
+rf_rnaseq$sex[rf_rnaseq$sex == "male"] = "Male"
+
+################
+
+
+
+
+```
+
+### Transform data into sample by gene matrix using zScores
+
+```{r transform data, echo=TRUE, eval=TRUE}
+
+# Make sample X gene matrix using zScores (now genes are the features)
+combined.mat=reshape2::acast(rf_rnaseq, 
+                             Symbol~specimenID, 
+                             value.var="zScore", 
+                             fun.aggregate = mean) #added this to correct for any duplicated rows in original table
+
+#then remove missing data
+missing=which(apply(combined.mat,1,function(x) any(is.na(x))))
+combined.mat=combined.mat[-missing,]
+
+# restructure into sample X gene dataframe
+forest_data <- as.data.frame(t(combined.mat))
+forest_data$specimenID <- rownames(forest_data)
+
+# add some metadata labels
+forest_data <- merge(forest_data, unique(rf_rnaseq[,c("specimenID", "tumorType", "sex")]), by= "specimenID")
+ ## Allocate more column space for forest data table
+
+#Store specimen id in rownames
+forest_data$tumorType <- as.factor(forest_data$tumorType)
+#data.table::alloc.col(forest_data,50000) 
+#forest_data <- fastDummies::dummy_cols(forest_data, select_columns = "sex")
+rownames(forest_data) <- forest_data$specimenID
+
+#drop specimenID
+drop <- c("sex", "specimenID")
+forest_data <- forest_data %>%
+  dplyr::select(-drop)
+
+```
+
+
+### Quality check of features 
+
+Any categorical features are dropped from the data set to prep data for correlation analysis. Features that are highly correlated to each other contribute little to the classification but may add undesirable noise to the model. All highly correlated features (correlation > 0.75) are dropped from the dataset to make the final dataset used for training and testing the model.
+
+```{r check for quality of features, eval=TRUE, echo=TRUE}
+
+#Remove categorical data from dataframe
+drop <- c("specimenID", "tumorType", "sex")
+rand_forest_dataset <- forest_data[, !(names(forest_data) %in% drop) ]
+
+#Find highly correlated genes that are less informative for random forest classification
+corred_data <-  cor(rand_forest_dataset)
+highlyCorDescriptors <- findCorrelation(corred_data, cutoff = .75)
+
+#Discard highly correlated features and select only the ones that can distinguish between groups
+rand_forest_dataset <- rand_forest_dataset[,-highlyCorDescriptors]
+
+#Put metadata labels back to the dataframe
+forest_data$specimenID <- rownames(forest_data)
+rand_forest_dataset$specimenID <- rownames(rand_forest_dataset)
+rand_forest_dataset <- merge(rand_forest_dataset, forest_data[, c("specimenID", "tumorType")], by= "specimenID")
+
+rownames(rand_forest_dataset) <- rand_forest_dataset$specimenID
+rand_forest_dataset <- rand_forest_dataset[,!(names(rand_forest_dataset) %in% c("specimenID"))]
+
+```
+
+
+## Partitioning the data into model set and naive holdout set:
+
+We first partitioned the data into a holdout set and a model set. The model set (new_forest) will be further partitioned into training set and test set by iterative random sampling that will be used to train and test the ensemble models during its iterations. The holdout set will be used to test the ensemble models at the very end. The holdout test set will be naive set that will not be seen by any of the models until the very end.
+
+
+```{r split the data for training, eval=TRUE}
+
+#Make the test and training datasets
+set.seed(998)  #(if you want to keep the exact same training and testing dataset then uncomment this line)
+inTraining <- createDataPartition(as.factor(rand_forest_dataset$tumorType), p = .75, list = FALSE)
+
+new_forest <- rand_forest_dataset[inTraining, ]
+holdout  <- rand_forest_dataset[-inTraining, ]
+
+```
+
+## Initial Model training and Crossvalidation :
+
+The model dataset was further split into 75% training and 25% testing dataset. The function _createDataPartition_ was used to create balanced splits of the data. Since the _tumorType_ argument to this function is a factor, the random sampling occurs within each class and should preserve the overall class distribution of the data.
+
+Then we tuned the model parameters to iterate through 1:100 different features to split the trees on (mtrys). We also tuned number of trees to (250,500,1000,2000) and found 500 trees as optimum to increase its accuracy. To account for adequate sample size for each validation round, 5-fold crossvalidation was carried out at each iteration. Below are details of our tuned initial model.
+
+```{r create model and check fit, eval=TRUE, fig.height=8, fig.width=8}
+
+# Sys.setenv("R_MAX_VSIZE" = 5e5)
+# options("expressions" = 500000)
+
+#Make the test and training datasets
+set.seed(998)  #(if you want to keep the exact same training and testing dataset then uncomment this line)
+inTraining <- createDataPartition(as.factor(new_forest$tumorType), p = .75, list = FALSE)
+
+training <- new_forest[ inTraining,]
+testing  <- new_forest[-inTraining,]
+
+
+# 10 fold validation control
+fitControl <- trainControl(## 5-fold CV
+                           method = "repeatedcv",
+                           number = 5,
+                           ## repeated ten times
+                           repeats = 5)
+
+tunegrid <- expand.grid(.mtry=c(1:sqrt(ncol(new_forest))))
+
+#Find the classes:
+summary(training$tumorType)
+
+## Load Fit data (All Models described in this document is stored on Synapse)
+load(synGet("syn21334259")$path)  
+
+
+## Construct the random forest model called Fit (the code is commented out to facilitate quick rendering of html file by loading the Fit from Synapse)
+
+#start parallelization
+# cl <- makePSOCKcluster(10)
+# registerDoParallel(cl)
+# 
+# set.seed(9998)
+# Fit <- train(tumorType ~ .,
+#              data = training[,c(1:ncol(training))],
+#              method = "rf",
+#              ntree= 500,
+#              tuneGrid = tunegrid,
+#              #classwt =
+#              proximity=TRUE,
+#              importance = TRUE,
+#              trControl = fitControl,
+#              verbose = TRUE)
+# 
+# ## When you are done:
+# stopCluster(cl)
+# 
+# #Select final number of ntrees
+# accuracy <- vector()
+# besttune <- vector()
+# iter <- c(250, 500, 1000, 2000)
+# accuracy[4] <- max(Fit$results$Accuracy)
+# besttune[4] <- Fit$bestTune$mtry
+# 
+# ROC <- data.frame(iter=numeric(),
+#                    accuracy=numeric())
+# ROC <- as.data.frame(cbind(iter,accuracy, besttune))
+# 
+# # ROC curve:
+# theme_update(text = element_text(size=15))
+# ggplot(ROC,  aes(x=iter, y=accuracy)) +
+#   geom_point(aes(size=1)) +
+#   geom_line() +
+#   coord_cartesian(ylim = c(0,1)) +
+#   labs(main="The model", x="ntrees :: Number of trees in the forest", y= "Accuracy of the model")
+# 
+# #Highest accuracy <- ntrees = 500, mtry= 29
+
+
+print(" Check the fit of the initial model")                 
+Fit
+
+#plot the model
+theme_update(text = element_text(size=15))
+ggplot(Fit$results,  aes(x=mtry, y=Accuracy)) +
+  geom_point(aes(size=1)) +
+  geom_line() +
+  coord_cartesian(ylim = c(0,1)) +
+  labs(main="The model", x="mtry :: Number of features for each split", y= "Accuracy of the model") 
+
+print("Check the clustering of the samples according to the model")
+MDSplot(Fit$finalModel, 
+        as.factor(training$tumorType), 
+        k=2, palette=NULL, 
+        pch=as.numeric(training$tumorType), 
+        cex=1, 
+        cex.axis= 1.1,
+        cex.lab = 1.1,
+        cex.main = 1.1,
+        main= "MDS Plot of the initial training set")
+legend("topright",
+       inset=0.01, 
+       cex= 1.1,
+       legend=levels(training$tumorType), 
+       fill=brewer.pal(6, "Set1"))
+
+#Order errors using OOB
+#head(Fit$finalModel$err.rate[order(Fit$finalModel$err.rate[,1]),])
+
+```
+
+
+```{r predict model, eval=TRUE}
+
+#Use model to predict labels of test data
+pred <- predict(Fit, newdata = testing[,c(1:length(colnames(testing)))])
+
+#store predicted labels in the test dataframe
+testing$pred <- pred
+
+```
+
+
+```{r model accuracy, eval=TRUE}
+
+# Check the accuracy of the model
+library(DT)
+
+conf_matrix <- confusionMatrix(data = testing$pred, 
+                              reference = as.factor(testing$tumorType), 
+                              mode = "prec_recall")
+
+## Make a performance histogram from initial iterations of the forest
+
+perf <- as.data.frame(conf_matrix$byClass)
+perf$Class <- rownames(perf)
+perf <- perf %>%
+  dplyr::select(Class, F1)
+
+# estimate variable importance
+importance <- varImp(Fit, scale=TRUE)
+
+# Select top important features
+list_init <- as.data.frame(importance$importance)
+
+
+# DT:: datatable(list_init)
+
+#conf_matrix$table
+
+```
+
+## Iterating over models
+
+We observed that tuning our model did not significantly improve the performance of the initial model. As a result we tried an ensemble approach where we ran 500 randomized iterations of our forest. In each iteration, a new randomly sampled training set and testing set was generated to generate an independent model. We then plotted the performance of all the 500 independent models to get a distribution of F1 scores for each class. A higher mean F1 score for a class overall would mean a higher classification accuracy for that class.
+
+
+```{r Make a model iteratively, fig.width=10, fig.height=10, message=FALSE, warning=FALSE}
+
+
+# FeatureList <- list()
+# perf_new <- perf
+iter_tunegrid <- expand.grid(.mtry=29)
+
+# load performance
+load(synGet("syn21334369")$path)
+
+# Load the Featurelist and perf list stored on synapse
+#load(synGet("syn21334369")$path)
+
+#The model building code has been commented out below for quick rendering of html
+
+# for (i in 1:500){
+#   # make new train-test set
+#   inTraining <- createDataPartition(as.factor(new_forest$tumorType), p = .75, list = FALSE)
+#   training <- new_forest[ inTraining,]
+#   testing  <- new_forest[-inTraining,]
+# 
+#   #start parallelization
+#   cl <- makePSOCKcluster(10)
+#   registerDoParallel(cl)
+# 
+#   #make new model
+#   Fit_new <- train(tumorType ~ .,
+#              data = training[,c(1:ncol(training))],
+#              method = "rf",
+#              ntree= 500,
+#              #mtry = 45,
+#              tuneGrid = iter_tunegrid,
+#              #classwt =
+#              proximity=TRUE,
+#              importance = TRUE,
+#              trControl = fitControl,
+#              verbose = TRUE)
+#   
+#   ## When you are done:
+#   stopCluster(cl)
+# 
+#   # predict test set with the model to get F1 scores
+#   pred <- predict(Fit_new, newdata = testing[,c(1:length(colnames(testing)))])
+#   #store predicted labels in the test dataframe
+#   testing$pred <- pred
+# 
+#   #Make confusion matrix
+#   conf_matrix <- confusionMatrix(data = testing$pred,
+#                               reference = as.factor(testing$tumorType),
+#                               mode = "prec_recall")
+# 
+#   ## Store F1 scores from various iterations of the forest
+#   df <- as.data.frame(conf_matrix$byClass)
+#   perf_new[, glue('Iter{i}')] <- df$F1
+#   #perf[, Class] <- rownames(df)
+# 
+# 
+#   #Store Feature importance for all iterations in a list
+#   # estimate variable importance
+#   importance <- varImp(Fit_new, scale=TRUE)
+# 
+#   # Select top important features
+#   features <- as.data.frame(importance$importance)
+# 
+#   FeatureList[[i]] <- (features)
+# }
+
+
+# Plot histogram of all F1 scores
+#Make long df
+perf_new$Class <- as.factor(perf_new$Class)
+perf_new_long <- gather(perf_new, iteration, All_scores, F1:Iter500, factor_key=TRUE)
+
+par(mfrow=c(2,1)) 
+
+theme_update(legend.text = element_text(size=8), 
+      axis.text.x  = element_text(size=10),
+      axis.text.y = element_text(size=10),
+      text = element_text(size=10))
+
+ggplot(perf_new_long, aes(x=All_scores, fill=Class, color= Class)) + 
+  geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
+  theme(legend.position="top") +
+  scale_color_brewer(palette="Spectral")+
+  scale_fill_brewer(palette="Spectral") +
+  labs(title="Histogram of raw F1 scores for iterations of RF",x="F1 scores from different iterations of RF", y = "Number of RF iterations with a given F1 score") +
+  xlim(0, 1)
+
+ggplot(perf_new_long, aes(x=All_scores, fill=Class, color=Class)) + 
+  #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
+  geom_density(alpha=0.5) +
+  theme(legend.position="top") +
+  #scale_color_manual(values=allcolors[[1]][12:18])
+  scale_color_brewer(palette="Spectral")+
+  scale_fill_brewer(palette="Spectral") +
+  labs(title="Density plot of F1 scores for iterations of RF",x="F1 scores from different iterations of RF", y = "Proportions of RF iterations with a given F1 score") +
+  xlim (0,1)
+
+varImpPlot(Fit_new$finalModel,
+           main = "Important variables in the forest",
+           n.var = 80,
+           type = 2)
+
+```
+
+
+### Important variables for the model
+
+Lets take a look at the important genes picked up by our models as *_top 100 classifiers_* for the different classes.
+
+```{r features, eval=T, fig.width=10, fig.height=10}
+
+#Take top 50 features since mean decrease in Gini flattens only after 50 features
+
+# Filter Importance scores of features for each Class
+features_cNF <- as.data.frame(sapply(FeatureList, `[[`, 1))
+features_MPNST <- as.data.frame(sapply(FeatureList, `[[`, 2))
+features_NF <- as.data.frame(sapply(FeatureList, `[[`, 3))
+features_pNF <- as.data.frame(sapply(FeatureList, `[[`, 4))
+
+
+# Plot the distribution of importance scores of features
+ridgeplot_classes <- function(featurelist, dataframe, class){
+  #Take row max
+  dataframe$median <- rowMedians(as.matrix(dataframe[,]))
+  #add Class column
+  dataframe$Celltype <- rownames(FeatureList[[1]])
+  #Take top50 rows
+  dataframe <- dataframe[order(-dataframe$median),]
+  new_df <- dataframe[(1:100),]
+  #make long df
+  dataframe_long <- gather(new_df, iteration, All_scores, V1:V500, factor_key=TRUE)
+  
+  #save the ordered df
+  var_name <- glue('ordered_{class}') # Construct the name
+  assign(var_name, new_df, env=.GlobalEnv)
+ 
+  #make ridgeplot
+  theme_update(legend.text = element_text(size=8), 
+      axis.text.x  = element_text(size=15),
+      axis.text.y = element_text(size=10),
+      text = element_text(size=15))
+  ggplot(dataframe_long, aes(x=All_scores, y=Celltype, fill=Celltype)) + 
+  geom_density_ridges(scale = 3, rel_min_height = 0.01, alpha= 0.5)  +
+  theme(legend.position="none") +
+  scale_color_manual(values=color_list[[1]]) +
+  labs(title= glue('{class}: Top 100 Features'),x="Importance Score", y = "Proportion of RFs") +
+  xlim(-10,100)
+  
+}
+
+ridgeplot_classes(FeatureList, features_cNF, "Cutaneous Neurofibroma")
+ridgeplot_classes(FeatureList, features_MPNST, "MPNST")
+ridgeplot_classes(FeatureList, features_NF, "Neurofibroma")
+ridgeplot_classes(FeatureList, features_pNF, "Plexiform Neurofibroma")
+
+```
+
+
+## Testing sufficiency of top features as predictors of classes
+
+To narrow down our feature space and select genes that may be important for classifying tumortypes, we decided to use the mean decrease of Gini index as our selection criteria. Furthermore, to test the sufficiency of the top features for classification, we used the selected features to run another ensemble of random forests. If the reduced feature space led to an improvement of median F1 scores for each class, we would consider them to be sufficient to classify the tumortypes.
+
+Since the mean decrease in Gini index flattens out after the top 100 features, we selected the top 100 features from all the classes and took their union to train a second ensemble of random forests. 
+
+```{r}
+
+# Take all top features for all classes
+`ordered_Cutaneous Neurofibroma`$Celltype <- gsub("`", "", `ordered_Cutaneous Neurofibroma`$Celltype)
+ordered_MPNST$Celltype <- gsub("`", "", ordered_MPNST$Celltype)
+ordered_Neurofibroma$Celltype <- gsub("`", "", ordered_Neurofibroma$Celltype)
+`ordered_Plexiform Neurofibroma`$Celltype <- gsub("`", "", `ordered_Plexiform Neurofibroma`$Celltype)
+
+allfeatures <- unique(c(`ordered_Cutaneous Neurofibroma`$Celltype, ordered_MPNST$Celltype, ordered_Neurofibroma$Celltype, `ordered_Plexiform Neurofibroma`$Celltype))
+allfeatures <- gsub("`", "", allfeatures)
+
+commonfeatures1 <- intersect(`ordered_Cutaneous Neurofibroma`$Celltype, ordered_MPNST$Celltype)
+commonfeatures2 <- intersect(ordered_Neurofibroma$Celltype, `ordered_Plexiform Neurofibroma`$Celltype)
+commonfeatures <- intersect(commonfeatures1,commonfeatures2)
+
+
+full_feature_list <- c(`ordered_Cutaneous Neurofibroma`$Celltype, ordered_MPNST$Celltype, ordered_Neurofibroma$Celltype, `ordered_Plexiform Neurofibroma`$Celltype)
+full_feature_list <- gsub("`", "", full_feature_list)
+
+
+```
+
+
+To build the ensemble of forests, only selected features were provided as input to the models, the data was randomly sampled at each iteration of model building to generate a new training set at each iteration, and the initial holdout set (that was never used in any of the previous model building iterations) was used as the test set to evaluate performace of each of the 500 models. 
+
+```{r random forest with top features, fig.width=8, fig.height=8, message=FALSE, warning=FALSE}
+
+#FeatureList_final_100 <- list()
+#perf_final_100 <- perf
+
+## Restrict features from train and test set
+keep <- colnames(new_forest) %in% allfeatures
+final_model_data <- new_forest[,keep]
+final_model_data$tumorType <- new_forest$tumorType
+
+keep <- colnames(holdout) %in% allfeatures
+final_holdout <- holdout[,keep]
+final_holdout$tumorType <- holdout$tumorType
+
+#The model building code has been commented out below for quick rendering of html
+
+ # for (i in 1:500){
+ #  # make new train-test set
+ #  inTraining <- createDataPartition(as.factor(final_model_data$tumorType), p = .75, list = FALSE)
+ #  training <- final_model_data[ inTraining,]
+ #  testing  <- final_holdout #final_model_data[-inTraining,]  #use the holdout test data that none of the potential models have seen before
+ # 
+ #  #start parallelization
+ #  cl <- makePSOCKcluster(10)
+ #  registerDoParallel(cl)
+ # 
+ #  #make new model
+ #  Fit_new <- train(tumorType ~ .,
+ #             data = training[,c(1:ncol(training))],
+ #             method = "rf",
+ #             ntree= 500,
+ #             #mtry = 45,
+ #             tuneGrid = iter_tunegrid,
+ #             #classwt =
+ #             proximity=TRUE,
+ #             importance = TRUE,
+ #             trControl = fitControl,
+ #             verbose = TRUE)
+ # 
+ #  # When you are done:
+ #  stopCluster(cl)
+ # 
+ #  # predict test set with the model to get F1 scores
+ #  pred <- predict(Fit_new, newdata = testing[,c(1:length(colnames(testing)))])
+ #  #store predicted labels in the test dataframe
+ #  testing$pred <- pred
+ # 
+ #  #Make confusion matrix
+ #  conf_matrix <- confusionMatrix(data = testing$pred,
+ #                              reference = as.factor(testing$tumorType),
+ #                              mode = "prec_recall")
+ # 
+ #  ## Store F1 scores from various iterations of the forest
+ #  df <- as.data.frame(conf_matrix$byClass)
+ #  perf_final_100[, glue('Iter{i}')] <- df$F1
+ #  #perf[, Class] <- rownames(df)
+ # 
+ # 
+ #  #Store Feature importance for all iterations in a list
+ #  # estimate variable importance
+ #  importance <- varImp(Fit_new, scale=TRUE)
+ # 
+ #  # Select top important features
+ #  features <- as.data.frame(importance$importance)
+ # 
+ #  FeatureList_final_100[[i]] <- (features)
+ # }
+
+df <- perf_final
+
+# Plot histogram of all F1 scores
+#Make long df
+perf_final_long <- gather(perf_final_100, iteration, All_scores, 3:ncol(perf_final_100), factor_key=TRUE)
+
+par(mfrow=c(2,1)) 
+
+theme_update(legend.text = element_text(size=8), 
+      axis.text.x  = element_text(size=10),
+      axis.text.y = element_text(size=10),
+      text = element_text(size=10))
+
+ggplot(perf_final_long, aes(x=All_scores, fill=Class, color=Class)) + 
+  #geom_histogram( binwidth=0.05, alpha=0.5, position="dodge") +
+  geom_density(alpha=0.5) +
+  theme(legend.position="top") +
+  #scale_color_manual(values=allcolors[[1]][12:18])
+  scale_color_brewer(palette="Spectral")+
+  scale_fill_brewer(palette="Spectral") +
+  labs(title="Density plot of F1 scores for iterations of RF",x="F1 scores from different iterations of RF", y = "Proportions of RF iterations with a given F1 score") +
+  xlim (0,1)
+
+
+```
+
+We found that the new ensemble of 500 forests fared better with the cutaneous neurofibroma class but failed to improve the median F1 scores of the other classes. This suggested to us that selecting top 100 features from each class were not sufficient for efficient classification of the tumortypes. 
+
+```{r top features from 2nd iteration, fig.width=10, fig.height=10, eval=FALSE, message=FALSE, warning=FALSE}
+
+# Filter Importance scores of features for each Class
+final_cNF <- as.data.frame(sapply(FeatureList_final, `[[`, 1))
+final_MPNST <- as.data.frame(sapply(FeatureList_final, `[[`, 2))
+final_NF <- as.data.frame(sapply(FeatureList_final, `[[`, 3))
+final_pNF <- as.data.frame(sapply(FeatureList_final, `[[`, 4))
+
+
+#Calculate median scores for each
+# Plot the distribution of importance scores of features
+ridgeplot_classes <- function(featurelist, dataframe, class){
+  #Take row median
+  dataframe$median <- rowMedians(as.matrix(dataframe[,]))
+  #add Class column
+  dataframe$Celltype <- rownames(featurelist[[1]])
+  #Take top50 rows
+  dataframe <- dataframe[order(-dataframe$median),]
+  new_df <- dataframe[(1:98),]
+  #make long df
+  dataframe_long <- gather(new_df, iteration, All_scores, V1:V500, factor_key=TRUE)
+  
+  #save the ordered df
+  var_name <- glue('ordered_{class}') # Construct the name
+  assign(var_name, new_df, env=.GlobalEnv)
+ 
+  #make ridgeplot
+  theme_update(legend.text = element_text(size=8), 
+      axis.text.x  = element_text(size=15),
+      axis.text.y = element_text(size=10),
+      text = element_text(size=15))
+  ggplot(dataframe_long, aes(x=All_scores, y=Celltype, fill=Celltype)) + 
+  geom_density_ridges(scale = 3, rel_min_height = 0.01, alpha= 0.5)  +
+  theme(legend.position="none") +
+  scale_color_manual(values=color_list[[1]]) +
+  labs(title= glue('{class}: Top 40 Features'),x="Importance Score", y = "Proportion of RFs") +
+  xlim(-10,100)
+  
+}
+
+ridgeplot_classes(FeatureList_final, final_cNF, "final_Cutaneous Neurofibroma")
+ridgeplot_classes(FeatureList_final, final_MPNST, "final_MPNST")
+ridgeplot_classes(FeatureList_final, final_NF, "final_Neurofibroma")
+ridgeplot_classes(FeatureList_final, final_pNF, "final_Plexiform Neurofibroma")
+
+
+```
+
+
+```{r save imp datafiles, eval=F, fig.width=10, fig.height=10}
+
+#save(FeatureList, perf_new, file = "RF_LV_Ensemble.Rdata")
+```
+
+```{r sessionInfo, eval=T}
+
+sessionInfo()
+
+```

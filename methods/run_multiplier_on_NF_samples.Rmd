@@ -41,7 +41,7 @@ plier_model <- readr::read_rds(synGet("syn18689545")$path) ## Provided by the CC
 tx2gene_df <- synGet('syn18482848')$path %>% readr::read_tsv()
 
 
-metadata <- synTableQuery("SELECT * FROM syn21046851", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'") as well as ("SELECT * FROM syn20629788 where fileFormat = 'sf' and tumorType = 'plexiform neurofibroma'")
+metadata <- synTableQuery("SELECT * FROM syn21046851", includeRowIdAndRowVersion=F)$asDataFrame() #this is a frozen table of ("SELECT * FROM syn16858331 where fileFormat = 'sf' and accessType in ('PUBLIC','REQUEST ACCESS') and isCellLine = 'FALSE'") as well as ("SELECT * FROM syn20629788 where fileFormat = 'sf' and tumorType = 'plexiform neurofibroma'"), also I manually removed cell lines, xenografts, so these are all primary tumors. 
 
 
 metadata$isCellLine <- toupper(metadata$isCellLine)
@@ -130,14 +130,6 @@ ggplot(data = mp_res_tidy) +
 
 It is probably a safe assumption that (at least for subtyping these tumors), the latent variables with high variance across the cohort are the most "interesting." We won't filter these out a priori because we have some downstream analyses that might use te low sd data as well. 
 
-```{r eval=FALSE, include=FALSE}
-
-# mp_res_tidy_filt <- mp_res_tidy %>% 
-#   filter(sd_value > 0.05)
-# 
-# mp_res_filt <- mp_res[rownames(mp_res) %in% unique(mp_res_tidy_filt$latent_var),]
-
-```
 
 ### Filter by Correlation
 

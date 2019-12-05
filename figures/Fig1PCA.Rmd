@@ -1,0 +1,126 @@
+---
+title: "Figure 1 PCA Plots"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(synapser)
+synLogin()
+require(tidyverse)
+
+
+```
+
+## Table 1
+To generate table 1 we need to collect all mRNA-seq and genomic sequencing data we have to summarize.
+
+```{r rna-Seq, warning=FALSE}
+tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
+
+vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex,isCellLine,transplantationType,study"
+full.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))
+
+#full.tab<-full.tab
+#%>%
+red.tab<-subset(full.tab,tumorType%in%c('Malignant peripheral nerve sheath tumor','Neurofibroma','Malignant Peripheral Nerve Sheath Tumor','Plexiform Neurofibroma','Cutaneous Neurofibroma'))%>%
+    subset(isCellLine%in%c(NA,"FALSE"))%>%
+  subset(is.na(transplantationType))
+
+red.tab$tumorType<-gsub("Malignant peripheral nerve sheath tumor",'Malignant Peripheral Nerve Sheath Tumor',red.tab$tumorType)
+
+
+```
+
+Now we have to collect the exome seq and WGS data. We have two tables containing gene variant data. All located at a table in `syn21266269`.
+
+```{r variant data,warning=FALSE}
+tabids<-synTableQuery('select distinct tableId from syn21266269')$asDataFrame()
+
+vars="Hugo_Symbol,Protein_position,specimenID,IMPACT,FILTER,ExAC_AF,gnomAD_AF"
+exome.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))%>%
+   subset(gnomAD_AF<0.01)
+
+```
+
+Now we want to count how many samples of each tumor type and whether or not they have sequencing or transcript levels
+
+```{r table 1}
+samp.data<-red.tab%>%
+  select(individualID,specimenID,tumorType,sex,study)%>%
+  distinct()%>%
+  mutate(hasGenomicData=specimenID%in%exome.tab$specimenID)
+
+samp.data$sex<-gsub('female','Female',gsub('^male','Male',samp.data$sex))
+samp.data$study[is.na(samp.data$study)]<-'CBTTC'
+
+#set this up to be the annotation for the heatmaps
+rownames(samp.data)<-samp.data$specimenID
+
+samps<-samp.data%>%
+  group_by(tumorType)%>%
+  summarize(individuals=n_distinct(individualID),samples=n_distinct(specimenID),numGenomic=length(which(hasGenomicData)))
+
+samp.data<-apply(samp.data,2,as.factor)%>%as.data.frame()%>%select(sex,study,hasGenomicData,tumorType)
+
+DT::datatable(samps)
+
+```
+
+## Fig 1 panel 1
+We have updated our plans to show PCA plots instead of heatmaps.
+
+```{r transcript heatmap, echo=FALSE}
+library(ggfortify)
+
+#with.var<-red.tab%>%
+#    group_by(Symbol)%>%
+#    mutate(geneVar=var(zScore))%>%
+#    arrange(desc(geneVar))%>%
+#    select(Symbol,geneVar)%>%distinct()
+
+as.mat<-red.tab%>%
+  reshape2::acast(Symbol~specimenID,value.var='zScore',fun.aggregate = function(x) mean(x,na.rm=T))%>%
+  as.matrix()
+as.mat[which(!is.finite(as.mat),arr.ind = T)]<-0.0
+autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')
+
+pdf('fig1panelA.pdf')
+autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')
+dev.off()
+
+```
+
+
+## Figure 1 Panels B
+Now we can do the same for latent variables
+
+```{r LV plots,echo=FALSE}
+
+mvscores=synTableQuery("select * From syn21046991 where isCellLine <> TRUE")$asDataFrame()
+with.var<-mvscores%>%
+    group_by(latent_var)%>%
+    mutate(lvVar=var(value))%>%
+    arrange(desc(lvVar))%>%
+    dplyr::select(latent_var,lvVar)%>%distinct()
+
+as.mat<-mvscores%>%subset(specimenID%in%rownames(samp.data))%>%
+  reshape2::acast(latent_var~specimenID,value.var='value',fun.aggregate = mean)%>%
+  as.matrix()
+
+autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')
+
+pdf('fig1panelB.pdf')
+autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')
+dev.off()
+
+
+```

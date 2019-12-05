@@ -34,7 +34,7 @@ DT::datatable(rf.results)
 
 ## Figure 3A
 
-Now we can go ahead and plot a venn diagram of the RF results
+Now we can go ahead and plot a venn diagram of the RF results. The first thing we want to do is evaluate how many latent variables predict which tumor types. This Venn Diagram illustrates that there are numerous LVs that predict many different tumor types. 
 
 ```{r Venn,warning=FALSE}
 library(ggvenn)
@@ -52,7 +52,7 @@ dev.off()
 ```
 
 ## Figure 3B
-Now we want to count how many samples of each tumor type and whether or not they have sequencing or transcript levels
+Now we want to count how many samples of each tumor type and whether or not they have sequencing or transcript levels. This plot is less successful and I imagine we'll drop it. The idea is to show which variables have 'correlates' - either immune cell types, metaviper proteins, or gene mutations.
 
 ```{r barpots}
 library(ggplot2)
@@ -83,7 +83,7 @@ dev.off()
 
 # Alternate Figure 3B
 
-Perhaps a heatmap would be better
+Perhaps a heatmap would be better. I tried to plot it, see attached. The idea is to show which latent variables predict tumor type (red), and how many of those correlates described above exist. Blue indicates 0/NA.
 
 ```{r fig3b again, warning=FALSE,echo=FALSE}
 library(pheatmap)

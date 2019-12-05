@@ -1,0 +1,97 @@
+---
+title: "Figure 3 ideas"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(synapser)
+synLogin()
+require(tidyverse)
+
+
+```
+
+## Grab data from table
+The goal of this figure is to summarize the results in `syn21326918`.
+
+```{r rna-Seq, warning=FALSE}
+
+rf.results<-synTableQuery('select * from syn21326918')$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+DT::datatable(rf.results)
+
+```
+
+## Figure 3A
+
+Now we can go ahead and plot a venn diagram of the RF results
+
+```{r Venn,warning=FALSE}
+library(ggvenn)
+
+
+ggvenn(data.frame(rf.results$latent_var,apply(rf.results[,2:5],2,function(x) ifelse(is.na(x),F,T))))
+
+
+
+pdf('vennDiag.pdf')
+
+ggvenn(data.frame(rf.results$latent_var,apply(rf.results[,2:5],2,function(x) ifelse(is.na(x),F,T))), 
+  fill_color = c("blue", "yellow", "green","red"))
+dev.off()
+```
+
+## Figure 3B
+Now we want to count how many samples of each tumor type and whether or not they have sequencing or transcript levels
+
+```{r barpots}
+library(ggplot2)
+
+tdf<-rf.results%>%
+    pivot_longer(c(cNF,MPNST,NF,pNF),names_to='predictiveOf',values_drop_na = TRUE)%>%
+    pivot_longer(c("Proteins with correlated activity","Immune Signatures","Number Genes Mutated"),values_to='CorrelatedSignals',values_drop_na = FALSE)%>%
+  rename(`Correlated Features`='name')
+
+#ggplot(tdf)+geom_bar(aes(x=`Correlated Features`,fill=predictiveOf),position='dodge')+ggtitle('Number of variables with correlated features')
+
+scale_fill_venn <- function(...){
+    ggplot2:::manual_scale(
+        'color', 
+        values = setNames(c('blue', 'yellow', 'green', 'red'), as.factor(c('cNF','MPNST','NF','pNF'))),
+        ...
+    )
+}
+
+##trying to re-create the venn diagram colors
+ggplot(tdf,aes(y=latent_var,shape=`Correlated Features`,x=CorrelatedSignals,color=predictiveOf,alpha=0.5))+geom_point()+scale_x_log10()+scale_fill_venn()
+
+pdf('fig3dotplot.pdf')
+ggplot(tdf,aes(y=latent_var,shape=`Correlated Features`,x=CorrelatedSignals,color=predictiveOf,alpha=0.5))+geom_point()+scale_x_log10()+scale_fill_venn()
+dev.off()
+
+```
+
+# Alternate Figure 3B
+
+Perhaps a heatmap would be better
+
+```{r fig3b again, warning=FALSE,echo=FALSE}
+library(pheatmap)
+urf<-rf.results%>%column_to_rownames('latent_var')%>%
+    apply(2,function(x) as.numeric(ifelse(is.na(x),-1000,ifelse(x=='X',1000,x))))
+rownames(urf)<-rf.results$latent_var
+
+pheatmap(urf,cellwidth = 10,cellheight = 10,cluster_cols = F,clustering_method = 'ward',  filename = 'fig3heatmap.pdf')
+
+pheatmap(urf,cellwidth = 10,cellheight = 10,cluster_cols = F,clustering_method = 'ward')
+```

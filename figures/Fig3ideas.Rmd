@@ -91,7 +91,7 @@ urf<-rf.results%>%column_to_rownames('latent_var')%>%
     apply(2,function(x) as.numeric(ifelse(is.na(x),-1000,ifelse(x=='X',1000,x))))
 rownames(urf)<-rf.results$latent_var
 
-pheatmap(urf,cellwidth = 10,cellheight = 10,cluster_cols = F,clustering_method = 'ward',  filename = 'fig3heatmap.pdf')
+pheatmap(urf,cellwidth = 10,cellheight = 10,cluster_cols = F,clustering_method = 'ward', gaps_col=4, filename = 'fig3heatmap.pdf')
 
-pheatmap(urf,cellwidth = 10,cellheight = 10,cluster_cols = F,clustering_method = 'ward')
+pheatmap(urf,cellwidth = 10,cellheight = 10,cluster_cols = F,gaps_col=4, clustering_method = 'ward')
 ```

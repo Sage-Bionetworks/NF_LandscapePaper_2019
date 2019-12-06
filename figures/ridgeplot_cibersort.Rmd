@@ -39,7 +39,7 @@ immune_df %>%
     ggplot() + 
     geom_density_ridges(aes(x = score, y = cell_type, fill = cell_type)) +
   labs(x = 'CIBERSORT Enrichment', y = "Immune Cell Type") +
-    theme_minimal() +
+    theme_bw() +
     theme(legend.position = "none") +
   facet_grid(cols = vars(tumor_abbr))
 

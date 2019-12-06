@@ -1,0 +1,48 @@
+---
+title: "Plotting cibersort results for comparison"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Get LVs selected by random forest and multiPLIER expression results. 
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(synapser)
+library(ggridges)
+synLogin()
+
+immune_df <- synTableQuery("select * from syn21177277")$filepath %>% read_csv()
+
+  
+```
+
+```{r}
+
+immune_df %>% 
+    filter(method == "cibersort") %>% 
+    filter(!is.na(tumorType)) %>% 
+    mutate(tumor_abbr = case_when(tumorType == "Malignant Peripheral Nerve Sheath Tumor" ~ "MPNST",
+                                tumorType == "Malignant peripheral nerve sheath tumor" ~ "MPNST" ,
+                                  tumorType == "Neurofibroma" ~ "NF",
+                                  tumorType == "Plexiform Neurofibroma" ~ "pNF",
+                                  tumorType == "Cutaneous Neurofibroma" ~ "cNF")) %>% 
+    ggplot() + 
+    geom_density_ridges(aes(x = score, y = cell_type, fill = cell_type)) +
+  labs(x = 'CIBERSORT Enrichment', y = "Immune Cell Type") +
+    theme_bw() +
+    theme(legend.position = "none") +
+  facet_grid(cols = vars(tumor_abbr))
+
+ggsave("cibersort_ridgeplot.png",height = 5, width = 8)
+```
+

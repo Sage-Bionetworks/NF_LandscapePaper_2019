@@ -1,5 +1,5 @@
 ---
-title: "Plotting cibersort results for comparison"
+title: "Plotting top LV dotplots and loadings"
 author: "Robert Allaway"
 date: "`r Sys.Date()`"
 output: 
@@ -32,6 +32,8 @@ mp_res <- mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read
 
 tums <- c("MPNST","NF", "pNF","cNF")
 ```
+
+I plotted expression and loading for the top 3 LVs with an associated pathway for each tumor type. Filtering for unique LVs only (since there are some dupes in the top 40 lists for each) this left me with 6 LVs overall to plot. 
 
 ```{r}
 
@@ -104,6 +106,8 @@ cowplot::save_plot("top_lv_dotplots_known_pathways.pdf", full_plot, ncol = 2,
 
 ```
 
+In the paper, it probably makes sense here to transition into the non-pathway-associated LVs, so let's do the same plotting exercise with those: 
+ I ended up with 7 unique LVs to plot. 
 
 ```{r}
 
@@ -164,7 +168,7 @@ p6 <- gridExtra::grid.arrange(ps[[6]][[1]]+theme(legend.position="none"),
 p7 <- gridExtra::grid.arrange(ps[[7]][[1]]+theme(legend.position="none"),
                    ps[[7]][[2]])
 
-subplots <- cowplot::plot_grid(p1,p2,p3,p4,p5,p6, 
+subplots <- cowplot::plot_grid(p1,p2,p3,p4,p5,p6,p7,
                                labels = c("A","B","C","D","E","F","G"), 
                                label_size = 14, 
                                scale = 0.95)
@@ -174,6 +178,11 @@ full_plot <-cowplot::plot_grid(subplots, legend, ncol = 1, rel_heights = c(1, .1
 
 cowplot::save_plot("top_lv_dotplots_unknown_lvs.pdf", full_plot, ncol = 2,
                    base_width = 5,
-                   base_height = 10)
+                   base_height = 12.5)
 
+```
+
+
+```{r}
+sessionInfo()
 ```

@@ -40,14 +40,14 @@ Now we can go ahead and plot a venn diagram of the RF results. The first thing w
 library(ggvenn)
 
 
-ggvenn(data.frame(rf.results$latent_var,apply(rf.results[,2:5],2,function(x) ifelse(is.na(x),F,T))))
+ggvenn(data.frame(rf.results$latent_var,apply(rf.results[,2:5],2,function(x) ifelse(is.na(x),F,T))),fill_color = c('#ca054d', '#ffcf9c', '#a4d4b4', '#3b1c32'))+theme_bw()
 
 
 
 pdf('vennDiag.pdf')
 
 ggvenn(data.frame(rf.results$latent_var,apply(rf.results[,2:5],2,function(x) ifelse(is.na(x),F,T))), 
-  fill_color = c("blue", "yellow", "green","red"))
+  fill_color = c('#ca054d', '#ffcf9c', '#a4d4b4', '#3b1c32'))+theme_bw()
 dev.off()
 ```
 
@@ -67,16 +67,16 @@ tdf<-rf.results%>%
 scale_fill_venn <- function(...){
     ggplot2:::manual_scale(
         'color', 
-        values = setNames(c('blue', 'yellow', 'green', 'red'), as.factor(c('cNF','MPNST','NF','pNF'))),
+        values = setNames(c('#ca054d', '#ffcf9c', '#a4d4b4', '#3b1c32'), as.factor(c('cNF','MPNST','NF','pNF'))),
         ...
     )
 }
 
 ##trying to re-create the venn diagram colors
-ggplot(tdf,aes(y=latent_var,shape=`Correlated Features`,x=CorrelatedSignals,color=predictiveOf,alpha=0.5))+geom_point()+scale_x_log10()+scale_fill_venn()
+ggplot(tdf,aes(y=latent_var,shape=`Correlated Features`,x=CorrelatedSignals,color=predictiveOf,alpha=0.5))+geom_point()+scale_x_log10()+scale_fill_venn()+theme_bw()
 
 pdf('fig3dotplot.pdf')
-ggplot(tdf,aes(y=latent_var,shape=`Correlated Features`,x=CorrelatedSignals,color=predictiveOf,alpha=0.5))+geom_point()+scale_x_log10()+scale_fill_venn()
+ggplot(tdf,aes(y=latent_var,shape=`Correlated Features`,x=CorrelatedSignals,color=predictiveOf,alpha=0.5))+geom_point()+scale_x_log10()+scale_fill_venn()+theme_bw()
 dev.off()
 
 ```

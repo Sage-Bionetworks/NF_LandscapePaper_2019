@@ -1,0 +1,177 @@
+---
+title: "Plotting cibersort results for comparison"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Get LVs selected by random forest and multiPLIER expression results. 
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(synapser)
+library(ggridges)
+library(cowplot)
+synLogin()
+
+lv_ranks <- synTableQuery("select * from syn21222255")$filepath %>% 
+  read_csv() %>% 
+  mutate(lv_fix = stringr::str_replace_all(LV_Full,"`",""))
+
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+
+mp_res <- mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read_csv() %>% filter(!is.na(tumorType))
+
+tums <- c("MPNST","NF", "pNF","cNF")
+```
+
+```{r}
+
+lvs_pws <- filter(lv_ranks, grepl(".+,.+", lv_fix))
+  
+lvs <- bind_rows(
+  lvs_pws %>% top_n(3, `Cutaneous Neurofibroma`),
+  lvs_pws %>% top_n(3, `Neurofibroma`),
+  lvs_pws %>% top_n(3, `Plexiform Neurofibroma`),
+  lvs_pws %>% top_n(3, `Malignant Peripheral Nerve Sheath Tumor`)
+  ) %>% 
+  distinct()
+
+plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
+
+mp_res_subset <- mp_res %>% filter(latent_var %in% lvs$lv_fix)
+
+ps  <- lapply(unique(lvs$lv_fix), function(i){
+  
+  p1 <- ggplot(data = mp_res %>% filter(latent_var == i)) +
+  ggbeeswarm::geom_quasirandom(aes(x=stringr::str_trunc(latent_var,30), y = value , color = tumorType, group = tumorType), dodge.width = 0.75) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 10, angle = 0)) +
+    labs(x = "", y = "multiPLIER value") +
+    scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
+                               "Plexiform Neurofibroma" = "#3b1c32",
+                               "Neurofibroma" = "#a4d4b4",
+                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+  
+  tidy <- plier_loadings_df %>%
+    dplyr::select(i) %>% 
+    tibble::rownames_to_column('lv')
+  p2 <- ggplot(tidy %>% top_n(30, get(i))) +
+    geom_bar(aes(x=reorder(lv, -get(i)), y=get(i)), stat = "identity") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size =6 )) +
+      labs(x = "Gene", y = "LV Loading")
+  
+  list(p1, p2)
+})
+
+legend <- cowplot::get_legend(ps[[1]][[1]] + 
+    guides(color = guide_legend(nrow = 1)) +
+    theme(legend.position = "bottom"))
+
+p1 <- gridExtra::grid.arrange(ps[[1]][[1]]+theme(legend.position="none"),
+                   ps[[1]][[2]])
+p2 <- gridExtra::grid.arrange(ps[[2]][[1]]+theme(legend.position="none"),
+                   ps[[2]][[2]])
+p3 <- gridExtra::grid.arrange(ps[[3]][[1]]+theme(legend.position="none"),
+                   ps[[3]][[2]])
+p4 <- gridExtra::grid.arrange(ps[[4]][[1]]+theme(legend.position="none"),
+                   ps[[4]][[2]])
+p5 <- gridExtra::grid.arrange(ps[[5]][[1]]+theme(legend.position="none"),
+                   ps[[5]][[2]])
+p6 <- gridExtra::grid.arrange(ps[[6]][[1]]+theme(legend.position="none"),
+                   ps[[6]][[2]])
+
+subplots <- cowplot::plot_grid(p1,p2,p3,p4,p5,p6, 
+                               labels = c("A","B","C","D","E","F"), 
+                               label_size = 14, 
+                               scale = 0.95)
+
+full_plot <-cowplot::plot_grid(subplots, legend, ncol = 1, rel_heights = c(1, .1))
+
+
+cowplot::save_plot("top_lv_dotplots_known_pathways.pdf", full_plot, ncol = 2,
+                   base_width = 5,
+                   base_height = 10)
+
+```
+
+
+```{r}
+
+lvs_pws <- filter(lv_ranks, !grepl(".+,.+", lv_fix))
+  
+lvs <- bind_rows(
+  lvs_pws %>% top_n(3, `Cutaneous Neurofibroma`),
+  lvs_pws %>% top_n(3, `Neurofibroma`),
+  lvs_pws %>% top_n(3, `Plexiform Neurofibroma`),
+  lvs_pws %>% top_n(3, `Malignant Peripheral Nerve Sheath Tumor`)
+  ) %>% 
+  distinct()
+
+plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
+
+mp_res_subset <- mp_res %>% filter(latent_var %in% lvs$lv_fix)
+
+ps  <- lapply(unique(lvs$lv_fix), function(i){
+  
+  p1 <- ggplot(data = mp_res %>% filter(latent_var == i)) +
+  ggbeeswarm::geom_quasirandom(aes(x=stringr::str_trunc(latent_var,30), y = value , color = tumorType, group = tumorType), dodge.width = 0.75) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 10, angle = 0)) +
+    labs(x = "", y = "multiPLIER value") +
+    scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
+                               "Plexiform Neurofibroma" = "#3b1c32",
+                               "Neurofibroma" = "#a4d4b4",
+                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+  
+  tidy <- plier_loadings_df %>%
+    dplyr::select(i) %>% 
+    tibble::rownames_to_column('lv')
+  p2 <- ggplot(tidy %>% top_n(30, get(i))) +
+    geom_bar(aes(x=reorder(lv, -get(i)), y=get(i)), stat = "identity") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size =6 )) +
+      labs(x = "Gene", y = "LV Loading")
+  
+  list(p1, p2)
+})
+
+legend <- cowplot::get_legend(ps[[1]][[1]] + 
+    guides(color = guide_legend(nrow = 1)) +
+    theme(legend.position = "bottom"))
+
+p1 <- gridExtra::grid.arrange(ps[[1]][[1]]+theme(legend.position="none"),
+                   ps[[1]][[2]])
+p2 <- gridExtra::grid.arrange(ps[[2]][[1]]+theme(legend.position="none"),
+                   ps[[2]][[2]])
+p3 <- gridExtra::grid.arrange(ps[[3]][[1]]+theme(legend.position="none"),
+                   ps[[3]][[2]])
+p4 <- gridExtra::grid.arrange(ps[[4]][[1]]+theme(legend.position="none"),
+                   ps[[4]][[2]])
+p5 <- gridExtra::grid.arrange(ps[[5]][[1]]+theme(legend.position="none"),
+                   ps[[5]][[2]])
+p6 <- gridExtra::grid.arrange(ps[[6]][[1]]+theme(legend.position="none"),
+                   ps[[6]][[2]])
+
+subplots <- cowplot::plot_grid(p1,p2,p3,p4,p5,p6, 
+                               labels = c("A","B","C","D","E","F"), 
+                               label_size = 14, 
+                               scale = 0.95)
+
+full_plot <-cowplot::plot_grid(subplots, legend, ncol = 1, rel_heights = c(1, .1))
+
+
+cowplot::save_plot("top_lv_dotplots_unknown_lvs.pdf", full_plot, ncol = 2,
+                   base_width = 5,
+                   base_height = 10)
+
+```

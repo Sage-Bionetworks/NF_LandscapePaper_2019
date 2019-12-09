@@ -1,0 +1,135 @@
+---
+title: "Plotting LVs and Genetic Variants"
+author: "Sara Goslne"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Get LVs selected by random forest and multiPLIER expression results, and gene variants and . 
+
+```{r, echo=FALSE,warning=FALSE}
+library(tidyverse)
+library(synapser)
+
+synLogin()
+
+
+mp_res <- mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read_csv() %>% filter(!is.na(tumorType))
+
+top.lvs<-synTableQuery("SELECT * from syn21318452")$asDataFrame()
+
+##now get the immune signatures
+deconv_scores='syn20710536'
+dtab<-synapser::synTableQuery(paste('select * from',deconv_scores))$asDataFrame()%>%
+  rename(immScore='score')
+
+
+dtab<-subset(dtab,method!='xcell')
+
+combined=dtab%>%select(c(cell_type,method,specimenID,immScore))%>%
+  left_join(subset(mp_res,latent_var%in%top.lvs$LatentVar),by='specimenID')
+
+```
+
+Now we filter for those signatures that are correlated with LVs
+
+```{r,warning=FALSE,echo=FALSE}
+
+corVals=combined%>%group_by(cell_type,latent_var,method)%>%summarize(corVal=cor(immScore,value,method = "spearman"))
+corthresh=0.6
+
+##now filter to the cell types with correlated latent variables (or anticorrelated)
+cor_cell_types=subset(corVals,abs(corVal)>corthresh)%>%
+  ungroup()%>%
+  group_by(latent_var)%>%
+  mutate(numTypes=n_distinct(cell_type))%>%
+  subset(numTypes>1)%>%
+  mutate(cell_types=paste(unique(cell_type),collapse=','))%>%
+  ungroup()%>%
+  select(latent_var,method,cell_types)%>%unique()%>%
+  rename('LV'='latent_var',`Cell Types`=cell_types)
+print(paste('we found',nrow(cor_cell_types),'latent variables/methods with some cell types with correlation greater than',corthresh))
+
+DT::datatable(cor_cell_types)
+
+
+```
+
+## LV Visualization
+
+Since there are only 4 LVs to showcase, we can do each individually, with the loadings for each LV
+
+
+```{r, warning=FALSE, echo=F}
+
+cells<-subset(corVals,abs(corVal)>corthresh)%>%ungroup()%>%
+  subset(cell_type!='Monocyte')%>%
+    select(cell_type)%>%distinct()
+
+print(cells)
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+
+plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
+
+
+
+library(viridis)
+val<-viridis_pal()(nrow(cells))
+names(val)<-cells$cell_type
+
+apply(cor_cell_types,1,function(x){
+  lv=x[['LV']]
+  m=x[['method']]
+  ct<-setdiff(unlist(strsplit(x[['Cell Types']],split=',')),'Monocyte')
+  print(ct)
+  #for each gene and cell type
+  lvs=subset(corVals,latent_var==lv)%>%
+        subset(abs(corVal)>corthresh)%>%
+         subset(method==m)%>%arrange(desc(corVal))%>%
+      ungroup()
+
+  scores=subset(combined,cell_type%in%ct)%>%
+      subset(latent_var==lv)%>%
+      subset(method==m)
+
+  
+  tidy <- plier_loadings_df %>%
+    dplyr::select(lv) %>% 
+    tibble::rownames_to_column('Gene')
+  p1 <- ggplot(tidy %>% top_n(30, get(lv))) +
+    geom_bar(aes(x=reorder(Gene,-get(lv)), y=get(lv)), stat = "identity") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size =6 )) +
+      labs(x = "Gene", y = "LV Loading")  
+  
+  p2<- ggplot(scores %>% mutate(latent_var = stringr::str_trunc(latent_var, 30)))+
+      geom_point(aes(x=immScore,y=value,
+          col=cell_type,shape=tumorType))+theme_bw()+
+    scale_color_manual(values=val)+
+      ggtitle(paste(m,'predictions of',lv,'correlation >',corthresh))
+  if(m=='mcp_counter')
+    p2<-p2+scale_x_log10()
+  print(p2)
+  ggsave(paste("fig6_",gsub(" ",'_',lv),'immuneScores.pdf',sep=''),useDingbats=FALSE)
+  print(p1)
+    ggsave(paste("fig6_",gsub(" ",'_',lv),'.pdf',sep=''),useDingbats=FALSE)
+
+  
+})
+
+
+```
+
+
+
+```{r}
+sessionInfo()
+```

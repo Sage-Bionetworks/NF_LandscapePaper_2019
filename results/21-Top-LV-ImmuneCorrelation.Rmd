@@ -104,74 +104,30 @@ cells<-subset(corVals,abs(corVal)>corthresh)%>%ungroup()%>%
 val<-park_palette('GeneralGrant',nrow(cells))
 names(val)<-cells$cell_type
 
-apply(subset(cor_cell_types,method=='cibersort'),1,function(x){
-  ct=x[['latent_var']]
+apply(subset(cor_cell_types),1,function(x){
+  lv=x[['latent_var']]
   m=x[['method']]
-
-cat(ct)
+  ct<-unlist(stsplit(x[['Cell Types']],split=','))
+  
   #for each gene and cell type
-  lvs=subset(corVals,latent_var==ct)%>%
+  lvs=subset(corVals,latent_var==lv)%>%
         subset(abs(corVal)>corthresh)%>%
         subset(cell_type!='Monocyte')%>%
     subset(method==m)%>%arrange(desc(corVal))%>%
       ungroup()
 
-    if(nrow(lvs)>12){
-    new.corthresh=format(lvs$corVal[15],digits=3)
-    lvs=lvs[1:12,]
-  }else{
-    new.corthresh=corthresh
-  }
-
-  scores=subset(combined,cell_type%in%lvs$cell_type)%>%
-      subset(latent_var==ct)%>%
+  scores=subset(combined,cell_type%in%ct)%>%
+      subset(latent_var==lv)%>%
       subset(method==m)
 
   p2<- ggplot(scores %>% mutate(latent_var = stringr::str_trunc(latent_var, 30)))+
       geom_point(aes(x=immScore,y=value,
           col=cell_type,shape=tumorType))+theme_bw()+
     scale_color_manual(values=val)+
-  #  scale_x_log10()+
-      ggtitle(paste(m,'predictions of',ct,'correlation >',new.corthresh))
+      ggtitle(paste(m,'predictions of',lv,'correlation >',corthresh))
+  if(method=='mcp_counter')
+    p2<-p2+scale_x_log10()
   print(p2)
 })
 
-
-```
-
-### MCPCOUNTER-correlated cell types
-
-First we plot the mcp-counter
-```{r mcpcounter cell type plots}
-
-apply(subset(cor_cell_types,method=='mcp_counter'),1,function(x){
-  ct=x[['latent_var']]
-  m=x[['method']]
-
-cat(ct)
-  #for each gene and cell type
-  lvs=subset(corVals,latent_var==ct)%>%
-    subset(cell_type!='Monocyte')%>%
-        subset(abs(corVal)>corthresh)%>%
-    subset(method==m)%>%arrange(desc(corVal))%>%
-      ungroup()
-
-    if(nrow(lvs)>12){
-    new.corthresh=format(lvs$corVal[15],digits=3)
-    lvs=lvs[1:12,]
-  }else{
-    new.corthresh=corthresh
-  }
-
-  scores=subset(combined,cell_type%in%lvs$cell_type)%>%
-      subset(latent_var==ct)%>%
-      subset(method==m)
-
-  p2<- ggplot(scores %>% mutate(latent_var = stringr::str_trunc(latent_var, 30)))+
-      geom_point(aes(x=immScore,y=value,
-          col=cell_type,shape=tumorType))+theme_bw()+
-    scale_x_log10()+scale_color_manual(values=val)+
-      ggtitle(paste(m,'predictions of',ct,'correlation >',new.corthresh))
-  print(p2)
-})
 ```

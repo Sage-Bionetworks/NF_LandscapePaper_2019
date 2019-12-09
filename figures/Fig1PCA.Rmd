@@ -96,12 +96,13 @@ autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggti
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-pdf('fig1panelA.pdf',width=8,height=5)
+#pdf('fig1panelA.pdf',width=8,height=5)
 autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
                                "Plexiform Neurofibroma" = "#3b1c32",
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
-dev.off()
+ggsave('fig1panelA.pdf',useDingbats=FALSE)
+#dev.off()
 
 ```
 
@@ -127,13 +128,14 @@ autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggti
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-pdf('fig1panelB.pdf',width=8,height=5)
+#pdf('fig1panelB.pdf',width=8,height=5)
 autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+
   scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
                                "Plexiform Neurofibroma" = "#3b1c32",
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
-dev.off()
+ggsave('fig1panelB.pdf',useDingbats=FALSE)
+#dev.off()
 
 
 ```

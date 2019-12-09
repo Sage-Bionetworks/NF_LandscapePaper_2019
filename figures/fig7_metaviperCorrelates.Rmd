@@ -1,0 +1,55 @@
+---
+title: "Plotting Metaviper and LVs"
+author: "Sara Goslne"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Summarize LV/Metaviper correlates
+
+Select the LVs that are correlated with MetaViper proteins and plot them in a heatmap. Since they are already stored it shoudl be pretty straightforward. 
+```{r, echo=FALSE,warning=FALSE}
+library(tidyverse)
+library(synapser)
+
+synLogin()
+
+
+
+corVals=synTableQuery('select * from syn21322923')$asDataFrame()
+
+sig.lvs<-corVals%>%subset(corVal>0.75)%>%
+  select(latent_var)%>%distinct()
+
+sig.prots<-corVals%>%subset(corVal>0.75)%>%
+  select(gene)%>%distinct()
+
+
+mat<-subset(corVals,gene%in%sig.prots$gene)%>%
+  subset(latent_var%in%sig.lvs$latent_var)%>%
+  reshape2::acast(gene~latent_var,value.var='corVal',fun.aggregate=mean)
+
+sums<-corVals%>%subset(corVal>0.75)%>%group_by(latent_var)%>%summarize(numCorrelated=n_distinct(gene))%>%arrange(numCorrelated)%>%column_to_rownames('latent_var')
+
+##now we want to summarize how many proteins are correlated with each 
+library(pheatmap)
+pheatmap(mat[,rownames(sums)],labels_row =rep('',nrow(mat)),clustering_method = 'ward.D',annotation_col=sums,cluster_cols=FALSE, cellwidth=10,filename='fig7_metaviperCorrelations.pdf')
+
+```
+
+## Focus on specific LVs
+
+I'm not sure what to picture here. We probably can do some GO analysis and plot some of the interesting ones.....
+
+```{r}
+sessionInfo()
+```

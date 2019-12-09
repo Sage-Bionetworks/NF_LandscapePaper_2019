@@ -71,17 +71,18 @@ Since there are only 4 LVs to showcase, we can do each individually, with the lo
 ```{r, warning=FALSE, echo=F}
 
 cells<-subset(corVals,abs(corVal)>corthresh)%>%ungroup()%>%
-    select(cell_type)%>%distinct()%>%subset(cell_type!='Monocyte')
+  subset(cell_type!='Monocyte')%>%
+    select(cell_type)%>%distinct()
 
-
+print(cells)
 plier_model <- readr::read_rds(synGet("syn18689545")$path)
 
 plier_loadings_df <- plier_model$Z %>% as.data.frame() %>% purrr::set_names(rownames(plier_model$B))
 
 
 
-library(nationalparkcolors)
-val<-park_palette('GeneralGrant',nrow(cells))
+library(viridis)
+val<-viridis_pal()(nrow(cells))
 names(val)<-cells$cell_type
 
 apply(cor_cell_types,1,function(x){

@@ -93,7 +93,7 @@ p6 <- gridExtra::grid.arrange(ps[[6]][[1]]+theme(legend.position="none"),
                    ps[[6]][[2]])
 
 subplots <- cowplot::plot_grid(p1,p2,p3,p4,p5,p6, 
-                               labels = c("i","ii","iii","iv","v","vi","vii"),
+                               labels = c("i","ii","iii","iv","v","vi"),
                                label_size = 14, 
                                scale = 0.95)
 
@@ -169,7 +169,7 @@ p6 <- gridExtra::grid.arrange(ps[[6]][[1]]+theme(legend.position="none"),
 #                    ps[[7]][[2]])
 
 subplots <- cowplot::plot_grid(p1,p2,p3,p4,p5,p6,#p7,
-                               labels = c("i","ii","iii","iv","v","vi","vii"), 
+                               labels = c("i","ii","iii","iv","v","vi"), 
                                label_size = 14, 
                                scale = 0.95)
 

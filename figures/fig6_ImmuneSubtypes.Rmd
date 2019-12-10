@@ -20,22 +20,25 @@ library(tidyverse)
 library(synapser)
 
 synLogin()
+#get top lvs
+top.lvs<-synTableQuery("SELECT * from syn21318452")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
 
-
-mp_res <- mp_res <- synTableQuery("select * from syn21046991")$filepath %>% read_csv() %>% filter(!is.na(tumorType))
-
-top.lvs<-synTableQuery("SELECT * from syn21318452")$asDataFrame()
+#get lv values
+mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame()%>%
+  filter(isCellLine != "TRUE")%>%
+  subset(latent_var%in%top.lvs$LatentVar)%>%
+  select(latent_var,id,value,specimenID,tumorType,modelOf,diagnosis)
 
 ##now get the immune signatures
 deconv_scores='syn20710536'
 dtab<-synapser::synTableQuery(paste('select * from',deconv_scores))$asDataFrame()%>%
   rename(immScore='score')
 
-
 dtab<-subset(dtab,method!='xcell')
 
 combined=dtab%>%select(c(cell_type,method,specimenID,immScore))%>%
-  left_join(subset(mp_res,latent_var%in%top.lvs$LatentVar),by='specimenID')
+  left_join(mp_res,by='specimenID')
 
 ```
 
@@ -44,18 +47,20 @@ Now we filter for those signatures that are correlated with LVs
 ```{r,warning=FALSE,echo=FALSE}
 
 corVals=combined%>%group_by(cell_type,latent_var,method)%>%summarize(corVal=cor(immScore,value,method = "spearman"))
-corthresh=0.6
+
+corthresh=0.65
 
 ##now filter to the cell types with correlated latent variables (or anticorrelated)
 cor_cell_types=subset(corVals,abs(corVal)>corthresh)%>%
   ungroup()%>%
   group_by(latent_var)%>%
   mutate(numTypes=n_distinct(cell_type))%>%
-  subset(numTypes>1)%>%
+  # subset(numTypes>1)%>%
   mutate(cell_types=paste(unique(cell_type),collapse=','))%>%
   ungroup()%>%
   select(latent_var,method,cell_types)%>%unique()%>%
   rename('LV'='latent_var',`Cell Types`=cell_types)
+
 print(paste('we found',nrow(cor_cell_types),'latent variables/methods with some cell types with correlation greater than',corthresh))
 
 DT::datatable(cor_cell_types)

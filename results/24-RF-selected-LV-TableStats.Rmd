@@ -1,5 +1,5 @@
 ---
-title: "24 - RF-selected LV Table Statst"
+title: "24 - RF-selected LV Table Stats"
 author: "Sara Gosline"
 date: "`r Sys.Date()`"
 output:
@@ -61,8 +61,10 @@ expr.genes<-full.tab%>%group_by(Symbol)%>%
 top.lvs<-synTableQuery("SELECT * from syn21318452")$asDataFrame()%>%
   select(-c(ROW_ID,ROW_VERSION))
 
+#get top latentiv ariables
 top.lvs<-as.data.frame(apply(top.lvs,2,function(x) gsub('^Y$','X',gsub('^N$','',x))))
 
+#get all multiplier results
 mp_res<-synTableQuery("SELECT * FROM syn21046991")$asDataFrame()%>%
   filter(isCellLine != "TRUE")%>%
   subset(latent_var%in%top.lvs$LatentVar)%>%
@@ -72,10 +74,10 @@ expr.vars<-subset(all.vars,Hugo_Symbol%in%expr.genes$Symbol)
 
 samps<-intersect(mp_res$specimenID,expr.vars$specimenID)
 
-mp_res<-mp_res%>%
-  subset(specimenID%in%samps)#
+#mp_res<-mp_res%>%
+#  subset(specimenID%in%samps)#
 
-data.with.var<-mp_res%>%
+data.with.var<-mp_res%>%subset(specimenID%in%samps)%>%
   left_join(expr.vars,by='specimenID')
 
 tab<-data.with.var
@@ -106,12 +108,15 @@ counts<-vals%>%
     subset(numVals==2)%>%ungroup()
 
 #so now we have only
-with.sig<-counts%>%ungroup()%>%#subset(gene%in%top.genes$Hugo_Symbol)%>%
-    group_by(latent_var,gene)%>%
-  mutate(pval=wilcox.test(value~status)$p.value)%>%ungroup()%>%
-  group_by(latent_var)%>%
-  mutate(corP=p.adjust(pval))%>%ungroup()%>%
-  select(latent_var,gene,pval,corP)%>%distinct()
+#with.sig<-counts%>%ungroup()%>%#subset(gene%in%top.genes$Hugo_Symbol)%>%
+#    group_by(latent_var,gene)%>%
+#  mutate(pval=wilcox.test(value~status)$p.value)%>%ungroup()%>%
+#  group_by(latent_var)%>%
+#  mutate(corP=p.adjust(pval))%>%ungroup()%>%
+#  select(latent_var,gene,pval,corP)%>%distinct()
+
+#stored this table in previous version
+with.sig<-synTableQuery('select * from syn21407433')$asDataFrame()
 
 sig.vals<-subset(with.sig,corP<0.01)
 
@@ -129,7 +134,7 @@ We already calculated the metaviper correlations here
 
 ##get correlated metaviper scores
 metaviper_scores='syn21259610'
-mtab<-synapser::synTableQuery(paste('SELECT * FROM syn21322923 where corVal>0.65'))$asDataFrame()%>%
+mtab<-synapser::synTableQuery(paste('SELECT * FROM syn21322923 where corVal>0.75'))$asDataFrame()%>%
   group_by(latent_var)%>%summarize(numMetaviperCorrelated=n_distinct(gene))%>%
   rename(`Proteins with correlated activity`=numMetaviperCorrelated)
 
@@ -191,6 +196,6 @@ final.tab<-top.lvs%>%
 DT::datatable(final.tab)
 
 #to cut/paste into the manuscript
-stab<-synapser::synBuildTable(final.tab,parent='syn21046734',name='RF-selected variables with correlates')
+stab<-synapser::synBuildTable(final.tab,parent='syn21046734',name='Updated RF-selected variables with correlates')
 synapser::synStore(stab)
 ```

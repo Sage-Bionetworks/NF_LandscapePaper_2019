@@ -141,6 +141,9 @@ with.sig<-counts%>%ungroup()%>%#subset(gene%in%top.genes$Hugo_Symbol)%>%
   mutate(corP=p.adjust(pval))%>%ungroup()%>%
   select(latent_var,gene,pval,corP)%>%distinct()
 
+tab<-synBuildTable(with.sig,name='Expressed Mutated Genes correlated with LVs',parent='syn21046734')
+synStore(tab)
+
 sig.vals<-subset(with.sig,corP<0.01)
 
 DT::datatable(sig.vals%>%group_by(latent_var)%>%summarize(numGenes=n_distinct(gene)))

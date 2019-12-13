@@ -43,7 +43,7 @@ drug_targets <- drug_targets %>%
 
 First, create a list of all druggable genes. We're using the drug-target explorer data, for any gene for which there is drug-target relationship with a mean_pchembl value >7, which corresponds to 1 uM. This gives us a rough approximation of druggable targets in the human genome but could be a bit under conservative.
 
-Then, we'll select the viper proteins that are 0.5 or greater correlation with latent variable expression, by latent variable (so each group of genes is based on a single latent variable expression, where each gene in the group is a highly-correlated viper protein)
+Then, we'll select the viper proteins that are 0.65 or greater correlation with latent variable expression, by latent variable (so each group of genes is based on a single latent variable expression, where each gene in the group is a highly-correlated viper protein)- this is basd on the threshold in notebook 16. 
 
 Then, we'll perform a weighted Kolmogorov-Smirnov test using the `GSEA` function from the `clusterProfiler` package to assess whether any of the viper genes are enriched in the universe of druggable genes. Here, we're treating each LV as the ranked list of viper genes (for standard GSEA, this would be the differentially expressed genes, for example) and treating the list of all drug targets as the gene set we're looking for enrichment in. 
 
@@ -58,7 +58,6 @@ term2gene <- drug_targets %>%
 tidy <- viper_res %>% 
   group_by(latent_var) %>% 
   filter(corVal > 0.65) %>% #only positively correlated genes >0.65 or so...this is arbitrary
-  top_n(15, corVal) %>% ##NB number 16 from Sara has a max of 15 - ie only top 15 if more than 15 greater than 0.65 cor
   filter(any(gene %in% term2gene$gene)) %>% ##remove LVs that have no overlap if any exist
   nest() %>% 
   mutate(data = lapply(data, function(x){
@@ -136,21 +135,14 @@ apply(tidy_filt, 1, function(x){
   tab_2 <- select(res,leading_edge, core_enrichment) %>% 
     mutate(core_enrichment = stringr::str_trunc(core_enrichment, width = 30)) %>% 
     ggpubr::ggtexttable(theme = ggpubr::ttheme(base_size = 10))
-  
-  tab_3 <- viper_res %>% 
-    filter(latent_var %in% res$lv) %>% 
-    filter(corVal > 0.5) %>% #only positively correlated genes >0.5 or so...this is arbitrary
-    filter(any(gene %in% term2gene$gene)) %>% 
-    ggpubr::ggtexttable(theme = ggpubr::ttheme(base_size = 10))
 
- 
-   cowplot::plot_grid(plt, tab_1, tab_2,tab_3, nrow=4,ncol=1, rel_heights = c(5,1,1))
+   cowplot::plot_grid(plt, tab_1, tab_2, nrow=3,ncol=1, rel_heights = c(5,1,1))
 })
 
 
 
 ```
-Here are the highly correlated viper proteins for each of the above LVs. 
+Here are the highly correlated viper proteins for each of the above LVs. I think that GSEA might be too "aggressive" of a test for this - we don't really care so much if there are _many_ druggable genes in each set of viper proteins, just that there are some or even one highly ranked in the list of correlated viper proteins. 
 
 ```{r}
 
@@ -162,9 +154,10 @@ apply(tidy_filt, 1, function(x){
     mutate(p.adjust = p.adjust(pvalue, n = nrow(tidy))) %>% 
     mutate(lv = x[['latent_var']])
   
-  print(viper_res %>% 
+  viper_res %>% 
     filter(latent_var %in% res$lv) %>% 
-    filter(corVal > 0.5))
+    filter(corVal > 0.65) %>% 
+    filter(gene %in% term2gene$gene)
   
   # cowplot::plot_grid(plt, tab_1, tab_2,tab_3, nrow=4,ncol=1, rel_heights = c(5,1,1))
 })

@@ -28,6 +28,8 @@ library(purrr)
 library(synapser)
 synLogin()
 library(clusterProfiler)
+library(enrichplot)
+library(ggupset)
 
 viper_res <- synTableQuery('SELECT * FROM syn21260871 where numSamps = 77')$filepath %>% 
 readr::read_csv()
@@ -67,105 +69,121 @@ tidy <- viper_res %>%
     geneList
   })) ##nest gene lists, looking at top 5% of genes in each LV 
 
-tidy_2 <- tidy %>% ###run GSEA on nested gene lists vs universe of "druggable genes" 
-  mutate(data = sapply(data, function(x){
-   tryCatch(GSEA(geneList = x, TERM2GENE = term2gene), error=function(err) NA)
- }))
+res <- parallel::mclapply(tidy$data, function(x){
+  GSEA(geneList = x, TERM2GENE = term2gene)
+}, mc.cores = parallel::detectCores())
 
-tidy_3 <- unnest(tidy_2)
+names(res) <- tidy$latent_var
 
-tidy_3 <- tidy_2 %>%  ##store plots and data frames for LVs with significant results
-  mutate(plot = lapply(data, function(x){
-    if(nrow(x)>0){
-      plots <- lapply(x, gseaplot, genesetId = 1)
-    }else{
-        plot <- NA
-    }
-    return(plot)
-    })) %>% 
-    mutate(res = lapply(data, function(x){
-    if(nrow(x)>0){
-      res <- x@result
-    }else{
-        res <- NA
-    }
-    return(res)
-    }))
-
-tidy_filt <- tidy_3 %>% 
-  filter(!is.na(plot)) %>% 
-  select(-data)
-
-```
-
-```{r}
-
-apply(tidy_filt, 1 , function(x){
-
-  res <- x[['res']] %>%  #we need to fix p.adj because of the way this was run
-    mutate(p.adjust = p.adjust(pvalue, n = nrow(tidy))) %>% 
-    mutate(lv = x[['latent_var']]) %>% 
-    select(lv,setSize, enrichmentScore, NES,pvalue,p.adjust,
-           leading_edge, core_enrichment)
-  
-  res
-  
-}) %>% bind_rows() %>% DT::datatable()
-
-
-```
-
-Let's plot these results. 
-
-```{r}
-
-apply(tidy_filt, 1, function(x){
-
-  plt <- x[['plot']]
-  
-  res <- x[['res']] %>%  #we need to fix p.adj because of the way this was run
-    mutate(p.adjust = p.adjust(pvalue, n = nrow(tidy))) %>% 
-    mutate(lv = x[['latent_var']])
-  
-  tab_1 <- select(res,lv,setSize, enrichmentScore, NES,pvalue,p.adjust) %>% 
-    ggpubr::ggtexttable(theme = ggpubr::ttheme(base_size = 10))
-  
-  tab_2 <- select(res,leading_edge, core_enrichment) %>% 
-    mutate(core_enrichment = stringr::str_trunc(core_enrichment, width = 30)) %>% 
-    ggpubr::ggtexttable(theme = ggpubr::ttheme(base_size = 10))
-
-   cowplot::plot_grid(plt, tab_1, tab_2, nrow=3,ncol=1, rel_heights = c(5,1,1))
+##determine if no results for a given LV
+empty_idx <- lapply(res, function(x){
+  if(nrow(x@result)==0){
+    TRUE
+  }else{
+    FALSE
+  }
 })
 
+##remove if no results
+res_complt <- res[empty_idx==F]
 
 
 ```
-Here are the highly correlated viper proteins for each of the above LVs. I think that GSEA might be too "aggressive" of a test for this - we don't really care so much if there are _many_ druggable genes in each set of viper proteins, just that there are some or even one highly ranked in the list of correlated viper proteins. 
+
+time to do ALL OF THE PLOTS! We are looking at the top 10 "upregulated" drugs and top 10 "downregulated" drugs. 
+
+First, dotplot:
 
 ```{r}
 
-apply(tidy_filt, 1, function(x){
-
-  plt <- x[['plot']]
-  
-  res <- x[['res']] %>%  #we need to fix p.adj because of the way this was run
-    mutate(p.adjust = p.adjust(pvalue, n = nrow(tidy))) %>% 
-    mutate(lv = x[['latent_var']])
-  
-  viper_res %>% 
-    filter(latent_var %in% res$lv) %>% 
-    filter(corVal > 0.65) %>% 
-    filter(gene %in% term2gene$gene)
-  
-  # cowplot::plot_grid(plt, tab_1, tab_2,tab_3, nrow=4,ncol=1, rel_heights = c(5,1,1))
+plots <- lapply(names(res_complt), function(x){ 
+  foo <-res_complt[[x]]
+  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
+  plt1 <- dotplot(foo, showCategory = show) + ggplot2::ggtitle(x)
 })
 
-
+plots
 
 ```
 
+Then, network plot of top 10 (more than this becomes impossible to read) by p-value:
+First, dotplot of top 20 by p-value:
+
+```{r}
+plots <- lapply(names(res_complt), function(x){ 
+  foo <-res_complt[[x]]
+  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
+  plt2 <- cnetplot(res_complt[[x]], categorySize="pvalue", showCategory = show,
+                    foldChange=tidy$data[tidy$latent_var==x] %>% unlist) +
+     ggplot2::ggtitle(x)
+})
+
+plots
+
+```
+
+
+Then a heatmap of the top 20 by p value: 
+
+```{r}
+plots <- lapply(names(res_complt), function(x){ 
+    foo <-res_complt[[x]]
+  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
+  plt3 <- heatplot(res_complt[[x]], showCategory = show) + ggplot2::ggtitle(x)
+})
+
+plots
+
+```
+
+Then a ridgeplot of the top 30 - this function doesn't let you filter by name, so it's just a selection of 30 most significant in both directions - this is good for demonstrating directionality. Some of these are VIPER proteins that are negatively, not positively, correlated with the LVs:
+
 ```{r}
 
+plots <- lapply(names(res_complt), function(x){ 
+    foo <-res_complt[[x]]
+  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
+  plt4 <- ridgeplot(res_complt[[x]], showCategory = 30) + ggplot2::ggtitle(x)
+})
+
+plots
+
+```
+
+Then an upsetplot becaue of course we have to try that out:
+
+```{r}
+plots <- lapply(names(res_complt), function(x){ 
+    foo <-res_complt[[x]]
+  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
+  plt5 <- enrichplot::upsetplot(res_complt[[x]], showCategory = show)
+ 
+})
+
+plots
+
+```
+
+Then a combined GSEA plot of the top ten by enrichment score:
+
+```{r}
+plots <- lapply(names(res_complt), function(x){ 
+    foo <-res_complt[[x]]
+  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
+  plt6 <- enrichplot::gseaplot2(res_complt[[x]], geneSetID = show)
+})
+
+plots
+
+```
+
+
+```{r}
 sessionInfo()
-
 ```

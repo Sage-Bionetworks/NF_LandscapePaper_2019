@@ -30,6 +30,7 @@ synLogin()
 library(clusterProfiler)
 library(enrichplot)
 library(ggupset)
+library(ggplot2)
 
 viper_res <- synTableQuery('SELECT * FROM syn21260871 where numSamps = 77')$filepath %>% 
 readr::read_csv()
@@ -95,14 +96,27 @@ First, dotplot:
 
 ```{r}
 
+x <- names(res_complt)[1]
+
+targ_counts <- drug_targets %>% 
+  group_by(std_name) %>% 
+  summarize(count = n())
+
 plots <- lapply(names(res_complt), function(x){ 
-  foo <-res_complt[[x]]
-  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
-            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
-  plt1 <- dotplot(foo, showCategory = show) + ggplot2::ggtitle(x)
+  foo <- res_complt[[x]]
+  show <- c(foo$Description[order(foo$enrichmentScore, decreasing=TRUE)][1:10],
+            foo$Description[order(foo$enrichmentScore, decreasing=FALSE)][1:10])
+
+  plt1 <- dotplot(foo, showCategory = show, x = "count") + ggplot2::ggtitle(x)
+ 
+  bar <- fortify(foo, showCategory = show) %>%
+    right_join(targ_counts %>% filter(std_name %in% show), by = ("std_name"="ID"))
+
+  plt2 <- ggplot(data = targ_counts %>% filter(std_name %in% show)) +
+     geom_bar(aes(x=std_name[order(match(std_name, show))], y = count), stat = "identity") + 
+     coord_flip()
 })
 
-plots
 
 ```
 
@@ -180,6 +194,22 @@ plots <- lapply(names(res_complt), function(x){
 
 plots
 
+```
+
+table of all significant results
+
+```{r}
+
+tab <- lapply(names(res_complt), function(x){ 
+  foo <- res_complt[[x]]@result %>% 
+    mutate(latent_var = x) %>% 
+    select(latent_var, everything())
+}) %>% bind_rows()
+
+# lv_drug_tab <- synBuildTable("Latent Variable Drug Set Enrichment Analysis", "syn21046734", tab)
+# synStore(lv_drug_tab)
+
+DT::datatable(tab)
 ```
 
 

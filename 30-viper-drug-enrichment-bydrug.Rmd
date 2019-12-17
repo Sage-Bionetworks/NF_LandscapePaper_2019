@@ -29,11 +29,12 @@ library(synapser)
 synLogin()
 library(clusterProfiler)
 library(enrichplot)
-library(ggupset)
+# library(ggupset)
 library(ggplot2)
+library(cowplot)
 
 viper_res <- synTableQuery('SELECT * FROM syn21260871 where numSamps = 77')$filepath %>% 
-readr::read_csv()
+  readr::read_csv()
 
 drug_targets <- feather::read_feather(synGet('syn20700199')$path)
 
@@ -41,7 +42,9 @@ drug_targets <- drug_targets %>%
   filter(mean_pchembl > 7) %>% 
   mutate(gene= hugo_gene) %>% 
   select(gene, std_name) 
+
 ```
+
 
 # Significance testing
 
@@ -96,27 +99,72 @@ First, dotplot:
 
 ```{r}
 
-x <- names(res_complt)[1]
-
 targ_counts <- drug_targets %>% 
   group_by(std_name) %>% 
   summarize(count = n())
 
 plots <- lapply(names(res_complt), function(x){ 
   foo <- res_complt[[x]]
+  
   show <- c(foo$Description[order(foo$enrichmentScore, decreasing=TRUE)][1:10],
             foo$Description[order(foo$enrichmentScore, decreasing=FALSE)][1:10])
 
-  plt1 <- dotplot(foo, showCategory = show, x = "count") + ggplot2::ggtitle(x)
- 
-  bar <- fortify(foo, showCategory = show) %>%
-    right_join(targ_counts %>% filter(std_name %in% show), by = ("std_name"="ID"))
+  plt1 <- dotplot(foo, showCategory = show, x = "count", orderBy = "Count") + 
+    theme_bw() + theme(legend.position="left") +
+    scale_y_discrete(label = function(y) stringr::str_trunc(y, 30))
 
-  plt2 <- ggplot(data = targ_counts %>% filter(std_name %in% show)) +
-     geom_bar(aes(x=std_name[order(match(std_name, show))], y = count), stat = "identity") + 
-     coord_flip()
+ 
+  targets <- targ_counts %>% filter(std_name %in% show)
+             
+  bar <- fortify(foo, showCategory = show, split = NULL) %>% 
+    full_join(targets, by = c("ID"="std_name")) %>% 
+    mutate(x=eval(parse(text="Count")))
+
+  idx <- order(bar[['Count']], decreasing = TRUE)
+  bar$Description <- factor(bar$Description, rev(unique(bar$Description[idx])))
+
+  plt2 <- ggplot(data = bar) +
+     geom_bar(aes(x=Description, y = count), stat = "identity") + 
+     coord_flip() + 
+    theme_bw() +
+    theme(axis.title.y=element_blank(),
+        axis.text.y =element_blank(),
+        axis.ticks.y=element_blank()) +
+    labs(y = "Total number of targets")
+    
+  
+  legend <- cowplot::get_legend(
+  # create some space to the left of the legend
+  plt1 + theme(legend.box.margin = margin(0, 0, 0, 12))
+)
+  
+  plots <- cowplot::plot_grid(plt1 + theme(legend.position = 'none'),
+                     plt2,
+                     legend,
+                     ncol = 3,
+                     rel_widths = c(3,1,1), align='h', axis = 'left')
+  
+  title <- ggdraw() + 
+  draw_label(
+    x,
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+  plot_grid(
+  title, plots,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+
+  )
 })
 
+plots
 
 ```
 
@@ -167,20 +215,21 @@ plots
 
 ```
 
-Then an upsetplot becaue of course we have to try that out:
+<!-- Then an upsetplot becaue of course we have to try that out: (NOTE, got rid of these due to knitting issue)--> 
 
-```{r}
-plots <- lapply(names(res_complt), function(x){ 
-    foo <-res_complt[[x]]
-  show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10],
-            foo$Description[order(foo$NES, decreasing=FALSE)][1:10])
-  plt5 <- enrichplot::upsetplot(res_complt[[x]], showCategory = show)
- 
-})
 
-plots
+<!-- ```{r} -->
+<!-- plots <- lapply(names(res_complt), function(x){  -->
+<!--     foo <-res_complt[[x]] -->
+<!--   show <- c(foo$Description[order(foo$NES, decreasing=TRUE)][1:10], -->
+<!--             foo$Description[order(foo$NES, decreasing=FALSE)][1:10]) -->
+<!--   plt5 <- enrichplot::upsetplot(res_complt[[x]], showCategory = show) -->
 
-```
+<!-- }) -->
+
+<!-- plots -->
+
+<!-- ``` -->
 
 Then a combined GSEA plot of the top ten by enrichment score:
 

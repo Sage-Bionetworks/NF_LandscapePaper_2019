@@ -1,0 +1,135 @@
+---
+title: "Latent variable scores correlated with mean MetaViper scores of drugs"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+
+Here, we are evaluating the 'druggability' of viper proteins that are well correlated with variables. 
+The plots at the end of this are labeled by LVs, but the enrichment is actually based on the list of viper proteins that have a correlation of 0.5 or greater with LV expression across all tumors.
+
+# Import packages
+
+First, import packages to process and plot the data. 
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(synapser)
+library(feather)
+synLogin()
+
+#get viper scores
+viper_res <- synTableQuery('SELECT * FROM syn21259610')$filepath %>% 
+readr::read_csv()%>%select(-c(ROW_ID,ROW_VERSION))
+
+#get top LVs
+top_lvs<-synTableQuery('SELECT distinct latent_var FROM syn21416832')$asDataFrame()$latent_var
+
+#get multiplier scores
+mp_res <-synTableQuery("SELECT * from syn21046991 where tumorType <> 'NA'")$filepath %>%
+  readr::read_csv()%>%
+  select(latent_var,value,tumorType,specimenID,studyName)%>%
+  subset(latent_var%in%top_lvs)
+
+#get drug targets
+drug_targets <- feather::read_feather(synGet('syn20700199')$path)
+drug_targets <- drug_targets %>% 
+  filter(mean_pchembl > 7) %>% 
+  mutate(gene= hugo_gene) %>% 
+  select(gene, std_name) 
+```
+
+# Map drugs and targets to summarize mapping
+
+For each drug we want to compute the mean metaviper score of each of its targets in each of the samples to provide a per-sample analysis of drug efficacy.
+
+
+```{r message=FALSE, warning=FALSE}
+
+term2viper <- drug_targets %>% 
+  mutate(term = std_name) %>% 
+  select(term, gene) %>% 
+  distinct()%>%
+  left_join(viper_res,by='gene')
+
+library(ggplot2)
+drugTargs<-term2viper%>%
+  group_by(term)%>%
+  summarize(numTargs=n_distinct(gene))
+ 
+ggplot(drugTargs)+geom_bar(aes(x=numTargs))
+```
+
+Most drugs have only 1 target! Let's filter to those drugs that have at least 3 targets
+
+# Calculate mean drug metaviper values and correlation with LV
+
+```{r}
+
+topDrugs<-subset(drugTargs,numTargs>2)%>%
+  select(term)
+
+drugMeans<-term2viper%>%
+  subset(term%in%topDrugs$term)%>%
+  group_by(term,specimenID)%>%
+  summarize(meanViper=mean(metaviperscore))
+
+lv2drug<-drugMeans%>%
+  ungroup()%>%
+  left_join(mp_res,by='specimenID')
+
+corLvs<-lv2drug%>%
+  group_by(latent_var,term)%>%
+  summarize(lvDrugCor=cor(value,meanViper,method='spearman'))%>%
+  subset(abs(lvDrugCor)>0.65)%>%left_join(drugTargs,by='term')
+
+DT::datatable(corLvs)
+
+```
+
+There are sooo mnay drugs/LVs that are correlated. This is likely due to the high amount of overlap with drugs and targets.
+
+# Filtering for significant drug/lv combos
+
+Since Robert calculated the enrichment of each LV by drug targets in `syn21442304` we can select those with significant (p.adjust<0.01) enrichment that also have drugs that are somewhat recognizable (not `CHEMBL` ids or some form of `Acid`)
+
+```{r}
+sigs<-synTableQuery("SELECT * from syn21442304 where \"p.adjust\"<0.01 and ID not like 'CHEMBL%' and ID not like '%Acid'")$asDataFrame()%>%
+  select(-c(ROW_ID,ROW_VERSION))
+
+res=sapply(unique(sigs$latent_var),function(lv){
+  drugs<-subset(sigs,latent_var==lv)%>%
+    select(ID)%>%
+    distinct()
+  
+  terms=subset(corLvs,latent_var==lv)%>%ungroup()%>%select(term)%>%distinct()
+  toplot=subset(lv2drug,latent_var==lv)%>%
+    subset(term%in%drugs$ID)%>%
+    subset(term%in%terms$term)%>%
+    rename(`LV Score`='value')
+      
+  toplot$term<-droplevels(toplot$term)
+  p<-ggplot(toplot)+geom_point(aes(x=meanViper,y=`LV Score`,col=term,shape=tumorType))+
+    ggtitle(paste(lv,'correlated drugs by Viper score'))
+  print(p)
+  ggsave(paste(lv,'corDrugs.pdf',sep=''),useDingbats=FALSE)
+  p
+})
+```
+
+
+
+```{r}
+sessionInfo()
+```

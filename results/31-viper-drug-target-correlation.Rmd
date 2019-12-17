@@ -121,7 +121,7 @@ res=sapply(unique(sigs$latent_var),function(lv){
       
   toplot$term<-droplevels(toplot$term)
   p<-ggplot(toplot)+geom_point(aes(x=meanViper,y=`LV Score`,col=term,shape=tumorType))+
-    ggtitle(paste(lv,'correlated drugs by Viper score'))
+    ggtitle(paste(lv,'correlated drugs by Viper score'))+theme_bw()
   print(p)
   ggsave(paste(lv,'corDrugs.pdf',sep=''),useDingbats=FALSE)
   p

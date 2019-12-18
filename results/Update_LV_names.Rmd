@@ -1,0 +1,112 @@
+---
+title: "RF_holdout_LV_to_name_Map"
+author: "Jineta Banerjee"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    fig_width: 7
+    fig_height: 6
+    fig_caption: true
+    df_print: paged
+    code_folding: hide
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, eval=TRUE, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+
+library(synapser)
+library(synapserutils)
+library(BiocManager)
+
+library(tidyverse)
+library(DT)
+library(colorspace)
+library(RColorBrewer)
+library(wesanderson)
+
+#Random Forest
+library(randomForest)
+library(e1071)
+library(caret)
+library(fastDummies)
+library(doParallel)
+
+
+#plotting
+library(AppliedPredictiveModeling)
+transparentTheme(trans = .4)
+library(pheatmap)
+library(ggridges)
+library(plyr)
+
+library(AnnotationDbi)
+#library(hgu95av2.db)
+#library(STRINGdb)
+library(gridExtra)
+
+#renv::init()
+library(glue)
+library(shinydashboard)
+#Synapser
+synLogin()
+
+```
+
+
+```{r Update LV names}
+
+#Original Plier Model
+plier_model <- readr::read_rds(synGet("syn18689545")$path)
+head(plier_model$summary)
+
+# find min FDRs for each LV
+min_FDR_plier <- plier_model$summary %>% 
+  group_by(`LV index`) %>% 
+  filter(`FDR` == min(`FDR`))
+
+#Add names to LVs
+LV_with_name <- min_FDR_plier %>% 
+  mutate(LV_name = glue('{`LV index`},{pathway}'))
+
+# Filter only the FDRs < 0.05 (significant association)
+LV_with_name <- LV_with_name %>% 
+  filter(FDR < 0.05)
+LV_with_name$LV_index <- LV_with_name$`LV index`
+
+#Get original "selected LVs" table from Synapse
+RF_holdout_table <- synTableQuery("SELECT * FROM syn21318452")$asDataFrame()
+
+# Use LV numbers as indices
+library(stringr)
+numextract <- function(string){
+  str_extract(string, "\\-*\\d+\\.*\\d*")
+}
+RF_holdout_table$LV_index <- numextract(RF_holdout_table$LatentVar)
+
+# Find names for all LVs
+new_df <- merge(RF_holdout_table, LV_with_name, by="LV_index", all.x=T, sort = F)
+keep <- c("LV_index", "LatentVar", "AUC", "FDR", "LV_name", "cNF", "MPNST", "NF", "pNF")
+new_df <- new_df[,keep]
+
+#update names in the "selected LVs" dataframe
+mismatch <- c(915,45,42,39,376,334,32,195)
+for (val in mismatch){
+  RF_holdout_table$LatentVar[RF_holdout_table$LV_index == val] <- new_df$LV_name[new_df$LV_index == val]
+}
+
+# Store updated table on synapse
+updated_RF_holdout_table <- synBuildTable("Updated_LV_name_RF_holdout_ensemble", "syn21046734", RF_holdout_table[, c(3:8)])
+synStore(updated_RF_holdout_table)
+
+```
+
+

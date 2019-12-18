@@ -36,9 +36,15 @@ library(cowplot)
 viper_res <- synTableQuery('SELECT * FROM syn21260871 where numSamps = 77')$filepath %>% 
   readr::read_csv()
 
-drug_targets <- feather::read_feather(synGet('syn20700199')$path)
+drug_list <- synTableQuery('SELECT * FROM syn21446643')$filepath %>% 
+  readr::read_csv()
+  
+dtex_structures <- synTableQuery('SELECT inchikey,internal_id FROM syn17090819')$filepath %>% 
+  readr::read_csv()
 
-drug_targets <- drug_targets %>% 
+dtex_targets <- feather::read_feather(synGet('syn20700199')$path)
+
+dtex_targets <- dtex_targets %>% 
   filter(mean_pchembl > 7) %>% 
   mutate(gene= hugo_gene) %>% 
   select(gene, std_name) 
@@ -57,7 +63,7 @@ Then, we'll perform a weighted Kolmogorov-Smirnov test using the `GSEA` function
 
 ```{r message=FALSE, warning=FALSE}
 
-term2gene <- drug_targets %>% 
+term2gene <- dtex_targets %>% 
   mutate(term = std_name) %>% 
   select(term, gene) %>% 
   distinct()
@@ -99,7 +105,7 @@ First, dotplot:
 
 ```{r}
 
-targ_counts <- drug_targets %>% 
+targ_counts <- dtex_targets %>% 
   group_by(std_name) %>% 
   summarize(count = n())
 

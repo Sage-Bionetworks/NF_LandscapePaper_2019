@@ -62,7 +62,7 @@ dtex_targets <- dtex_targets %>%
 
 First, create a list of all druggable genes. We're using the drug-target explorer data, for any gene for which there is drug-target relationship with a mean_pchembl value >7, which corresponds to 1 uM. This gives us a rough approximation of druggable targets in the human genome but could be a bit under conservative.
 
-Then, we'll select the viper proteins that are 0.65 or greater correlation with latent variable expression, by latent variable (so each group of genes is based on a single latent variable expression, where each gene in the group is a highly-correlated viper protein)- this is basd on the threshold in notebook 16. 
+Then, we'll use the viper proteins ranked by correlation with latent variable expression, by latent variable (so each group of genes is based on a single latent variable expression, where each gene in the group is a correlated viper protein)- this is based on the threshold in notebook 16. 
 
 Then, we'll perform a weighted Kolmogorov-Smirnov test using the `GSEA` function from the `clusterProfiler` package to assess whether any of the viper genes are enriched in the universe of druggable genes. Here, we're treating each LV as the ranked list of viper genes (for standard GSEA, this would be the differentially expressed genes, for example) and treating the list of all drug targets as the gene set we're looking for enrichment in. 
 

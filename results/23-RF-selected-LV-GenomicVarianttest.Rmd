@@ -141,6 +141,9 @@ with.sig<-counts%>%ungroup()%>%#subset(gene%in%top.genes$Hugo_Symbol)%>%
   mutate(corP=p.adjust(pval))%>%ungroup()%>%
   select(latent_var,gene,pval,corP)%>%distinct()
 
+tab<-synBuildTable(with.sig,name='Expressed Mutated Genes correlated with LVs',parent='syn21046734')
+synStore(tab)
+
 sig.vals<-subset(with.sig,corP<0.01)
 
 DT::datatable(sig.vals%>%group_by(latent_var)%>%summarize(numGenes=n_distinct(gene)))
@@ -150,6 +153,12 @@ DT::datatable(sig.vals%>%group_by(latent_var)%>%summarize(numGenes=n_distinct(ge
 Interesting! Some genes actually pass p-value correction. What do they look like? Here let's write the messiest possible code to print.
 
 ```{r,warning=FALSE}
+
+library(nationalparkcolors)
+
+val<-park_palette('Acadia',2)
+names(val)<-c('Mutated','WT')
+
 
 for(ct in unique(sig.vals$latent_var)){
     tplot<-sig.vals[which(sig.vals$latent_var==ct),]
@@ -164,10 +173,11 @@ for(ct in unique(sig.vals$latent_var)){
     subset(gene%in%tplot$gene)%>%
     ggplot(aes(x=gene,y=value,col=status))+
     geom_boxplot(outlier.shape=NA)+
-    geom_point(position=position_jitterdodge(),aes(shape=tumorType,group=status))+
+    geom_point(position=position_jitterdodge(),aes(shape=tumorType,col=status,group=status))+
     theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-    ggtitle(paste(ct,'scores\n',sigs))
-#    if(method=='cibersort')
+    theme_bw()+
+    ggtitle(paste(ct,'scores\n',sigs))+
+          scale_color_manual(values=val)#    if(method=='cibersort')
 #      p<-p+scale_y_log10()
     print(p)
   }

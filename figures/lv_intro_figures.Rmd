@@ -81,8 +81,17 @@ mp_res %>%
   geom_point(position = position_jitter(width = .15), size = .25)+
   geom_boxplot(aes(x = tumor_abbr, y = value),outlier.shape = NA, alpha = 0.3, width = .1, colour = "BLACK", position = position_nudge(x = .25, y = 0),adjust =2) +
   ylab('Latent Variable Expression')+xlab('Tumor Type')+coord_flip()+theme_cowplot()+guides(fill = FALSE, colour = FALSE) +
-  scale_colour_brewer(palette = "Dark2")+
-  scale_fill_brewer(palette = "Dark2")
+    scale_fill_manual(values = c("cNF"="#ca054d", 
+                               "pNF" = "#3b1c32",
+                               "NF" = "#a4d4b4",
+                               "MPNST" = "#ffcf9c")) +
+    scale_color_manual(values = c("cNF"="#ca054d", 
+                               "pNF" = "#3b1c32",
+                               "NF" = "#a4d4b4",
+                               "MPNST" = "#ffcf9c")) 
+
+ggsave("lv_overview_raincloud.png", height = 5, width = 8)
+ggsave("lv_overview_raincloud.pdf", height = 5, width = 8)
 
 ```
 

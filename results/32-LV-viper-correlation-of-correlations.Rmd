@@ -1,0 +1,314 @@
+---
+title: "31 - Check intercorrelation of LV-associated viper proteins"
+author: "Robert Allaway"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+Suggested by Jineta - let's look at correlation of correlations with regards to the viper proteins associated with each LV. 
+
+# Import packages
+
+First, import packages to process and plot the data. 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(synapser)
+set.seed(98121)
+synLogin()
+
+viper_res <- synTableQuery('SELECT * FROM syn21260871 where numSamps = 77')$filepath %>% 
+  readr::read_csv() %>%
+  mutate(latent_var_trunc = stringr::str_trunc(latent_var, 15)) 
+
+cors<-cor(viper_res %>% 
+  select(latent_var_trunc, gene, corVal) %>% 
+  spread(latent_var_trunc, corVal) %>%
+  filter(gene != "") %>%
+  tibble::column_to_rownames("gene"))
+
+
+heatmap <- pheatmap::pheatmap(cors, border_color = NA, fontsize = 8)
+
+```
+
+Yup, there are 5 clear groups of viper proteins here, so it's not surprising that we keep getting the same drugs over and over again. My interpretation of this is basically that each group has nearly same set of viper proteins correlated with the LVs in the that group. 
+
+Perhaps it would make sense to take the average correlation in each of these 5 clusters and just compute enrichment that way? Let's define those groups: 
+
+
+```{r}
+
+trees <- heatmap$tree_col
+
+grps <- cutree(trees, 5) %>% 
+  enframe(name = "latent_var_trunc", value = "cluster")
+
+groups <- grps %>% 
+  right_join(viper_res) %>% 
+  select(latent_var_trunc, cluster, gene, corVal) %>% 
+  group_by(cluster, gene) %>% 
+  summarize(mean_cor = mean(corVal))
+
+
+```
+
+
+Now we'll go ahead and run the same enrichment analysis using approved drugs that we did before:
+
+Here, we are evaluating the 'druggability' of viper proteins that are well correlated with variables. 
+The plots at the end of this are labeled by LVs, but the enrichment is actually based on the list of viper proteins that have a are correlated with these LVs. 
+
+
+For this analysis we only care about drugs that are _approved_ for use in humans. We use the DrugCentral list of drugs to filter this out. 
+
+
+```{r message=FALSE, warning=FALSE}
+library(clusterProfiler)
+library(enrichplot)
+library(cowplot)
+# 
+# drugcentral_structures <- synTableQuery("SELECT InChIKey as inchikey, INN as name FROM syn21446643", 
+#                                         includeRowIdAndRowVersion = F)$filepath %>% 
+#   readr::read_csv()
+
+dtex_structures <- synTableQuery('SELECT inchikey, internal_id FROM syn17090819', includeRowIdAndRowVersion = F)$filepath %>% 
+  readr::read_csv()
+
+dtex_targets <- feather::read_feather(synGet('syn20700199')$path)
+
+dtex_targets <- dtex_targets %>% 
+  filter(mean_pchembl > 7) %>% 
+  mutate(gene= hugo_gene) %>% 
+   left_join(dtex_structures) # %>% 
+  # inner_join(drugcentral_structures)
+
+```
+
+
+# Significance testing
+
+First, create a list of all druggable genes. We're using the drug-target explorer data, for any gene for which there is drug-target relationship with a mean_pchembl value >7, which corresponds to 100 nM. This gives us a rough approximation of druggable targets in the human genome but could be a bit under conservative.
+
+Then, we'll use the viper proteins ranked by correlation with latent variable expression, by latent variable (so each group of genes is based on a single latent variable expression, where each gene in the group is a correlated viper protein)- this is based on the threshold in notebook 16. 
+
+Then, we'll perform a weighted Kolmogorov-Smirnov test using the `GSEA` function from the `clusterProfiler` package to assess whether any of the viper genes are enriched in the universe of druggable genes. Here, we're treating each LV as the ranked list of viper genes (for standard GSEA, this would be the differentially expressed genes, for example) and treating the list of all drug targets as the gene set we're looking for enrichment in. 
+
+
+```{r message=FALSE, warning=FALSE}
+
+term2gene <- dtex_targets %>% 
+  mutate(term = std_name) %>% 
+  select(term, gene) %>% 
+  distinct()
+
+tidy <- groups %>% 
+  group_by(cluster) %>% 
+  nest() %>% 
+  mutate(data = lapply(data, function(x){
+    geneList <- x$mean_cor 
+    names(geneList) <- as.character(x$gene) 
+    geneList <- sort(geneList, decreasing = TRUE)
+    geneList
+  })) ##nest gene lists, looking at top 5% of genes in each LV 
+
+res <- parallel::mclapply(tidy$data, function(x){
+  GSEA(geneList = x, TERM2GENE = term2gene)
+}, mc.cores = parallel::detectCores())
+
+names(res) <- tidy$cluster
+
+##determine if no results for a given LV
+empty_idx <- lapply(res, function(x){
+  if(nrow(x@result)==0){
+    TRUE
+  }else{
+    FALSE
+  }
+})
+
+##remove if no results
+res_complt <- res[empty_idx==F]
+
+
+```
+
+time to do ALL OF THE PLOTS!
+
+Let's plot only compounds with a positive enrichment score to consider only those compounds that make sense for a given cluster. 
+There are 5 clusters but only three have any sort of enrichment. 
+
+First, dotplot:
+
+```{r}
+
+targ_counts <- dtex_targets %>% 
+  group_by(std_name) %>% 
+  summarize(count = n())
+
+plots <- lapply(names(res_complt), function(x){ 
+  foo <- res_complt[[x]]
+  
+  show <-foo@result %>% filter(enrichmentScore > 0) %>% arrange(-enrichmentScore) %>% slice(1:30) %>% purrr::pluck("Description")
+
+  plt1 <- dotplot(foo, showCategory = show, x = "count", orderBy = "Count") + 
+    theme_bw() + theme(legend.position="left") +
+    scale_y_discrete(label = function(y) stringr::str_trunc(y, 30))
+
+ 
+  targets <- targ_counts %>% filter(std_name %in% show)
+             
+  bar <- fortify(foo, showCategory = show, split = NULL) %>% 
+    full_join(targets, by = c("ID"="std_name")) %>% 
+    mutate(x=eval(parse(text="Count")))
+
+  idx <- order(bar[['Count']], decreasing = TRUE)
+  bar$Description <- factor(bar$Description, rev(unique(bar$Description[idx])))
+
+  plt2 <- ggplot(data = bar) +
+     geom_bar(aes(x=Description, y = count), stat = "identity") + 
+     coord_flip() + 
+    theme_bw() +
+    theme(axis.title.y=element_blank(),
+        axis.text.y =element_blank(),
+        axis.ticks.y=element_blank()) +
+    labs(y = "Total number of targets")
+    
+  
+  legend <- cowplot::get_legend(
+  # create some space to the left of the legend
+  plt1 + theme(legend.box.margin = margin(0, 0, 0, 12))
+)
+  
+  plots <- cowplot::plot_grid(plt1 + theme(legend.position = 'none'),
+                     plt2,
+                     legend,
+                     ncol = 3,
+                     rel_widths = c(3,1,1), align='h', axis = 'left')
+  
+  title <- ggdraw() + 
+  draw_label(
+    x,
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+  plot_grid(
+  title, plots,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+
+  )
+})
+
+plots
+
+```
+
+Then, network plots:
+
+```{r}
+plots <- lapply(names(res_complt), function(x){ 
+  foo <-res_complt[[x]]
+  show <-foo@result %>% filter(enrichmentScore > 0) %>% arrange(-enrichmentScore) %>% slice(1:30) %>% purrr::pluck("Description")
+
+  plt2 <- cnetplot(res_complt[[x]], categorySize="pvalue", showCategory = show,
+                    foldChange=tidy$data[tidy$latent_var==x] %>% unlist) +
+     ggplot2::ggtitle(x)
+})
+
+plots
+
+```
+
+
+Then a heatmap of the top 20 by p value: 
+
+```{r}
+plots <- lapply(names(res_complt), function(x){ 
+    foo <-res_complt[[x]]
+  show <-foo@result %>% filter(enrichmentScore > 0) %>% arrange(-enrichmentScore) %>% slice(1:30) %>% purrr::pluck("Description")
+
+  plt3 <- heatplot(res_complt[[x]], showCategory = show) + ggplot2::ggtitle(x)
+})
+
+plots
+
+```
+
+Then a ridgeplot of the top 10 - this function doesn't let you filter by name, so it's just a selection of 30 most significant in both directions - this is good for demonstrating directionality. Some of these are VIPER proteins that are negatively, not positively, correlated with the LVs:
+
+```{r}
+
+plots <- lapply(names(res_complt), function(x){
+  foo <-res_complt[[x]]
+  plt4 <- ridgeplot(res_complt[[x]], showCategory = 10) + ggplot2::ggtitle(x)
+})
+
+plots
+
+```
+
+
+table of all significant results
+
+```{r}
+
+tab <- lapply(names(res_complt), function(x){ 
+  foo <- res_complt[[x]]@result %>% 
+    mutate(latent_var = x) %>% 
+    select(latent_var, everything())
+}) %>% bind_rows()
+
+# lv_drug_tab <- synBuildTable("Latent Variable Drug Set Enrichment Analysis", "syn21046734", tab)
+# synStore(lv_drug_tab)
+
+DT::datatable(tab)
+```
+
+
+And then finally, connecting the viper clusters, via the LVs, back to the original tumor types. 
+
+We'll join the cluster ids to the latent variable results, calculate the mean LV expression each tumor sample by LV within cluster. Does this make sense? it's kind of complicated. I'd love for someone else to chime in and let me know if this is a reasonable approach. We then can plot the results. 
+
+```{r}
+
+synTableQuery("Select * from syn21046991")$filepath %>% 
+  readr::read_csv() %>% 
+  filter(!is.na(tumorType)) %>% 
+  mutate(tumor_abbr = case_when(tumorType == "Malignant Peripheral Nerve Sheath Tumor" ~ "MPNST",
+                                tumorType == "Neurofibroma" ~ "NF",
+                                tumorType == "Plexiform Neurofibroma" ~ "pNF",
+                                tumorType == "Cutaneous Neurofibroma" ~ "cNF")) %>% 
+  mutate(latent_var_trunc = stringr::str_trunc(latent_var, 15)) %>% 
+  left_join(grps) %>% 
+  filter(!is.na(cluster)) %>% 
+  group_by(cluster, tumor_abbr, specimenID) %>% 
+  summarize(mean_lv_expr_in_cluster = mean(value)) %>% 
+  ggplot() +
+  ggbeeswarm::geom_beeswarm(aes(x=tumor_abbr, y = mean_lv_expr_in_cluster, color = tumor_abbr)) +
+  facet_wrap(~cluster) +
+  theme_bw() +
+  scale_fill_manual(values = c("cNF"="#ca054d", 
+                               "pNF" = "#3b1c32",
+                               "NF" = "#a4d4b4",
+                               "MPNST" = "#ffcf9c")) 
+        
+
+```
+
+
+

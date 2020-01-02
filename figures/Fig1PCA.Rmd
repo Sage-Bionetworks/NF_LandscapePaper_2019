@@ -83,17 +83,13 @@ DT::datatable(samps)
 
 ```
 
-## Fig 1 panel 1
-We have updated our plans to show PCA plots instead of heatmaps.
+## Figure 1 Panel A
+
+We can create PCA plots of the samples. 
 
 ```{r transcript heatmap, echo=FALSE}
 library(ggfortify)
 
-#with.var<-red.tab%>%
-#    group_by(Symbol)%>%
-#    mutate(geneVar=var(zScore))%>%
-#    arrange(desc(geneVar))%>%
-#    select(Symbol,geneVar)%>%distinct()
 
 as.mat<-red.tab%>%
   reshape2::acast(Symbol~specimenID,value.var='zScore',fun.aggregate = function(x) mean(x,na.rm=T))%>%
@@ -134,19 +130,16 @@ autoplot(comps,data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-#pdf('fig1panelA.pdf',width=8,height=5)
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
-                               "Plexiform Neurofibroma" = "#3b1c32",
-                               "Neurofibroma" = "#a4d4b4",
-                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+
 ggsave('fig1panelA.pdf',useDingbats=FALSE)
 #dev.off()
 
 ```
 
 
-## Figure 1 Panels B
-Now we can do the same for latent variables
+## Figure 1 Panel C
+
+Now we can do the same for latent variables to see if the clustering is any more coherent.
 
 ```{r LV plots,echo=FALSE}
 
@@ -197,12 +190,7 @@ autoplot(comps,data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-deri
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-#pdf('fig1panelB.pdf',width=8,height=5)
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+
-  scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
-                               "Plexiform Neurofibroma" = "#3b1c32",
-                               "Neurofibroma" = "#a4d4b4",
-                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+
 ggsave('fig1panelB.pdf',useDingbats=FALSE)
 #dev.off()
 
@@ -210,6 +198,9 @@ ggsave('fig1panelB.pdf',useDingbats=FALSE)
 ```
 
 ## Summary stats
+
+We can summarize the distances between points.
+
 ```{r summary stats}
 
 tt.tab<-gene.tt.df%>%
@@ -232,15 +223,13 @@ sigs<-full.tab%>%group_by(`Distance Measured`)%>%pivot_wider(names_from='Values 
 
 DT::datatable(sigs)
 
-
-ggplot(subset(full.tab,`Distance Measured`=='Batch'))+geom_boxplot(aes(y=`Pairwise Distance`,x=`Group`,fill=`Values Clustered`))+scale_y_log10()+theme_bw()+scale_fill_brewer(palette='Dark2')+ theme(axis.text.x=element_text(angle=45, hjust=1))
-
 ggplot(subset(full.tab,`Distance Measured`=='Within Tumor Type'))+geom_boxplot(aes(y=`Pairwise Distance`,x=`Group`,fill=`Values Clustered`))+scale_y_log10()+theme_bw()+scale_fill_brewer(palette='Dark2')+ theme(axis.text.x=element_text(angle=45, hjust=1))
-ggsave('withinTumorLVclustering.pdf')
+ggsave('fig_s2_withinTumorLVclustering.pdf')
 ```
 
-## Best LV clustering
-Lastly let's try to subset to only the top 40 best latent variables.
+## Clustering based on top 40 LVs
+
+When we cluster based on only those LVs selected by the RF we do better.
 
 ```{r updated lvs}
 mvscores=synTableQuery("select * From syn21046991 where isCellLine <> TRUE")$asDataFrame()
@@ -282,11 +271,6 @@ autoplot(comps,data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-deri
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-#pdf('fig1panelB.pdf',width=8,height=5)
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+
-  scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
-                               "Plexiform Neurofibroma" = "#3b1c32",
-                               "Neurofibroma" = "#a4d4b4",
-                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
-ggsave('fig1panelC.pdf',useDingbats=FALSE)
+
+ggsave('fig1panel_alt.pdf',useDingbats=FALSE)
 ```

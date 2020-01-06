@@ -219,7 +219,7 @@ study.tab<-gene.study.df%>%
 
 full.tab<-rbind(tt.tab%>%select(fromto,`Values Clustered`,`Pairwise Distance`=value,Group=tumorType)%>%mutate(`Distance Measured`='Within Tumor Type'),study.tab%>%select(fromto,`Values Clustered`,`Pairwise Distance`=value,Group=study)%>%mutate(`Distance Measured`='Batch'))
 
-sigs<-full.tab%>%group_by(`Distance Measured`)%>%pivot_wider(names_from='Values Clustered',values_from='Pairwise Distance')%>%group_by(`Distance Measured`)%>%mutate(pval=t.test(genes,LVs)$p.value)%>%select(`Distance Measured`,pval)%>%distinct()
+sigs<-full.tab%>%group_by(`Distance Measured`)%>%pivot_wider(names_from='Values Clustered',values_from='Pairwise Distance')%>%group_by(`Distance Measured`)%>%mutate(pval=wilcox.test(genes,LVs)$p.value)%>%select(`Distance Measured`,pval)%>%distinct()
 
 DT::datatable(sigs)
 

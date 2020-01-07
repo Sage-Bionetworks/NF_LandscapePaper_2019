@@ -1,6 +1,6 @@
 ---
 title: "Plotting LVs and Genetic Variants"
-author: "Sara Goslne"
+author: "Sara Gosline"
 date: "`r Sys.Date()`"
 output: 
   html_document:

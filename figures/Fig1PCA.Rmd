@@ -69,46 +69,77 @@ samps<-samp.data%>%
   group_by(tumorType)%>%
   summarize(individuals=n_distinct(individualID),samples=n_distinct(specimenID),numGenomic=length(which(hasGenomicData)))
 
-samp.data<-apply(samp.data,2,as.factor)%>%as.data.frame()%>%select(sex,study,hasGenomicData,tumorType)
+samp.data<-apply(samp.data,2,as.factor)%>%
+  as.data.frame()%>%
+  select(sex,study,hasGenomicData,tumorType)
+
+##save mapping for later
+tumType<-samp.data%>%
+  rownames_to_column('sample')%>%
+  select(sample,tumorType,study)%>%
+  distinct()
 
 DT::datatable(samps)
 
 ```
 
-## Fig 1 panel 1
-We have updated our plans to show PCA plots instead of heatmaps.
+## Figure 1 Panel A
+
+We can create PCA plots of the samples. 
 
 ```{r transcript heatmap, echo=FALSE}
 library(ggfortify)
 
-#with.var<-red.tab%>%
-#    group_by(Symbol)%>%
-#    mutate(geneVar=var(zScore))%>%
-#    arrange(desc(geneVar))%>%
-#    select(Symbol,geneVar)%>%distinct()
 
 as.mat<-red.tab%>%
   reshape2::acast(Symbol~specimenID,value.var='zScore',fun.aggregate = function(x) mean(x,na.rm=T))%>%
   as.matrix()
 as.mat[which(!is.finite(as.mat),arr.ind = T)]<-0.0
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
+
+comps<-prcomp(t(as.mat))
+
+dist.vals<-as.dist(comps$x)%>%
+  as.matrix()%>%abs()%>%
+  as.data.frame()%>%
+  rownames_to_column('from')%>%
+  pivot_longer(cols=(-from),names_to='to')
+
+gene.tt.df<-dist.vals%>%
+  left_join(rename(tumType,from=sample,fromType=tumorType),by='from')%>%
+  left_join(rename(tumType,to=sample,toType=tumorType),by='to')%>%
+  filter(fromType==toType)%>%
+  rowwise()%>%
+  mutate(fromto=paste(sort(c(from,to)),collapse=','))%>%
+  select(fromto,value,fromType)%>%distinct()
+#  group_by(fromType)%>%summarize(meanDist=mean(value))
+
+#DT::datatable(lv.tt.df)
+
+gene.study.df<-dist.vals%>%
+  left_join(rename(tumType,from=sample,fromStudy=study),by='from')%>%
+  left_join(rename(tumType,to=sample,toStudy=study),by='to')%>%
+  filter(fromStudy==toStudy)%>%
+    rowwise()%>%
+  mutate(fromto=paste(sort(c(from,to)),collapse=','))%>%
+  select(fromto,value,fromStudy)%>%distinct()
+
+
+
+autoplot(comps,data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
                                "Plexiform Neurofibroma" = "#3b1c32",
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-#pdf('fig1panelA.pdf',width=8,height=5)
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('RNAseq-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
-                               "Plexiform Neurofibroma" = "#3b1c32",
-                               "Neurofibroma" = "#a4d4b4",
-                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+
 ggsave('fig1panelA.pdf',useDingbats=FALSE)
 #dev.off()
 
 ```
 
 
-## Figure 1 Panels B
-Now we can do the same for latent variables
+## Figure 1 Panel C
+
+Now we can do the same for latent variables to see if the clustering is any more coherent.
 
 ```{r LV plots,echo=FALSE}
 
@@ -123,19 +154,123 @@ as.mat<-mvscores%>%subset(specimenID%in%rownames(samp.data))%>%
   reshape2::acast(latent_var~specimenID,value.var='value',fun.aggregate = mean)%>%
   as.matrix()
 
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
+comps<-prcomp(t(as.mat))
+
+dist.vals<-as.dist(comps$x)%>%
+  as.matrix()%>%abs()%>%
+  as.data.frame()%>%
+  rownames_to_column('from')%>%
+  pivot_longer(cols=(-from),names_to='to')
+
+lv.tt.df<-dist.vals%>%
+  left_join(rename(tumType,from=sample,fromType=tumorType),by='from')%>%
+  left_join(rename(tumType,to=sample,toType=tumorType),by='to')%>%
+  filter(fromType==toType)%>%
+  rowwise()%>%
+  mutate(fromto=paste(sort(c(from,to)),collapse=','))%>%
+  select(fromto,value,fromType)%>%distinct()
+#  group_by(fromType)%>%summarize(meanDist=mean(value))
+
+#DT::datatable(lv.tt.df)
+
+lv.study.df<-dist.vals%>%
+  left_join(rename(tumType,from=sample,fromStudy=study),by='from')%>%
+  left_join(rename(tumType,to=sample,toStudy=study),by='to')%>%
+  filter(fromStudy==toStudy)%>%
+    rowwise()%>%
+  mutate(fromto=paste(sort(c(from,to)),collapse=','))%>%
+  select(fromto,value,fromStudy)%>%distinct()
+#  group_by(fromStudy)%>%summarize(meanDist=mean(value))
+
+#DT::datatable(lv.study.df)
+
+
+autoplot(comps,data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
                                "Plexiform Neurofibroma" = "#3b1c32",
                                "Neurofibroma" = "#a4d4b4",
                                "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
 
-#pdf('fig1panelB.pdf',width=8,height=5)
-autoplot(prcomp(t(as.mat)),data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+
-  scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
-                               "Plexiform Neurofibroma" = "#3b1c32",
-                               "Neurofibroma" = "#a4d4b4",
-                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+
 ggsave('fig1panelB.pdf',useDingbats=FALSE)
 #dev.off()
 
 
+```
+
+## Summary stats
+
+We can summarize the distances between points.
+
+```{r summary stats}
+
+tt.tab<-gene.tt.df%>%
+  select(fromto,value)%>%
+    rename(genes=value)%>%
+    left_join(lv.tt.df,by='fromto')%>%
+    rename(LVs=value,tumorType=fromType)%>%
+  pivot_longer(cols=c(genes,LVs),names_to='Values Clustered')
+
+study.tab<-gene.study.df%>%
+  select(fromto,value)%>%
+    rename(genes=value)%>%
+    left_join(lv.study.df,by='fromto')%>%
+    rename(LVs=value,study=fromStudy)%>%
+  pivot_longer(cols=c(genes,LVs),names_to='Values Clustered')
+
+full.tab<-rbind(tt.tab%>%select(fromto,`Values Clustered`,`Pairwise Distance`=value,Group=tumorType)%>%mutate(`Distance Measured`='Within Tumor Type'),study.tab%>%select(fromto,`Values Clustered`,`Pairwise Distance`=value,Group=study)%>%mutate(`Distance Measured`='Batch'))
+
+sigs<-full.tab%>%group_by(`Distance Measured`)%>%pivot_wider(names_from='Values Clustered',values_from='Pairwise Distance')%>%group_by(`Distance Measured`)%>%mutate(pval=wilcox.test(genes,LVs)$p.value)%>%select(`Distance Measured`,pval)%>%distinct()
+
+DT::datatable(sigs)
+
+ggplot(subset(full.tab,`Distance Measured`=='Within Tumor Type'))+geom_boxplot(aes(y=`Pairwise Distance`,x=`Group`,fill=`Values Clustered`))+scale_y_log10()+theme_bw()+scale_fill_brewer(palette='Dark2')+ theme(axis.text.x=element_text(angle=45, hjust=1))
+ggsave('fig_s2_withinTumorLVclustering.pdf')
+```
+
+## Clustering based on top 40 LVs
+
+When we cluster based on only those LVs selected by the RF we do better.
+
+```{r updated lvs}
+mvscores=synTableQuery("select * From syn21046991 where isCellLine <> TRUE")$asDataFrame()
+with.var<-mvscores%>%
+    group_by(latent_var)%>%
+    mutate(lvVar=var(value))%>%
+    arrange(desc(lvVar))%>%
+    dplyr::select(latent_var,lvVar)%>%distinct()
+
+selectedlvs=synTableQuery("select latent_var from syn21449221")$asDataFrame()%>%
+  select(latent_var)%>%
+  distinct()
+
+as.mat<-mvscores%>%subset(specimenID%in%rownames(samp.data))%>%
+  subset(latent_var%in%selectedlvs$latent_var)%>%
+  reshape2::acast(latent_var~specimenID,value.var='value',fun.aggregate = mean)%>%
+  as.matrix()
+
+comps<-prcomp(t(as.mat))
+
+dist.vals<-as.dist(comps$x)%>%
+  as.matrix()%>%abs()%>%
+  as.data.frame()%>%
+  rownames_to_column('from')%>%
+  pivot_longer(cols=(-from),names_to='to')
+
+joined.df<-dist.vals%>%
+  left_join(rename(tumType,from=sample,fromType=tumorType),by='from')%>%
+  left_join(rename(tumType,to=sample,toType=tumorType),by='to')%>%
+  filter(fromType==toType)
+
+top.lv.dist<-joined.df%>%group_by(fromType)%>%summarize(meanDist=mean(value))
+
+
+DT::datatable(top.lv.dist)
+
+autoplot(comps,data=samp.data,colour="tumorType",shape='study')+ggtitle('LV-derived clustering')+theme_bw()+scale_color_manual(values = c("Cutaneous Neurofibroma"="#ca054d", 
+                               "Plexiform Neurofibroma" = "#3b1c32",
+                               "Neurofibroma" = "#a4d4b4",
+                               "Malignant Peripheral Nerve Sheath Tumor" = "#ffcf9c"))
+
+
+ggsave('fig1panel_alt.pdf',useDingbats=FALSE)
 ```

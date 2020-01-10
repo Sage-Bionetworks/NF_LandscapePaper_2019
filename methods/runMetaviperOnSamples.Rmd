@@ -26,11 +26,20 @@ Gene expression data is spread across four synapse projects:
 Since permissions are dispersed, we need to collect all the data. 
 
 ```{r table, warning=FALSE}
+require(dplyr)
 tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
 
-vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex"
+vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex,studyName,diagnosis,isCellLine,transplantationType"
+
 full.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))
 
+full.tab$tumorType<-sapply(full.tab$tumorType,function(x) gsub('Malignant peripheral nerve sheath tumor',"Malignant Peripheral Nerve Sheath Tumor",x))
+
+tab<-full.tab%>%
+  subset(tumorType%in%c("Cutaneous Neurofibroma","Plexiform Neurofibroma","Malignant Peripheral Nerve Sheath Tumor","Neurofibroma"))%>%  subset(is.na(transplantationType))%>%
+  subset(isCellLine%in%c(NA,'FALSE'))
+
+DT::datatable(tab%>%group_by(tumorType,studyName)%>%summarize(samples=n_distinct(specimenID)))
 
 
 ```
@@ -99,5 +108,11 @@ Once it's in a data frame we can store back on the Synapse project.
 
 ```{r store on synapse,echo=FALSE}
 
-tab<-synBuildTable('Metaviper NF1 Protein scores',parent='syn21046734',fdf)
-synStore(tab)
+synapse_table='syn21259610'
+res=synTableQuery(paste('select * from',synapse_table))
+synDelete(res)
+
+  synapser::synStore(synapser::Table(synapse_table,fdf),used='syn20449214',executed=this.script)
+```
+
+Updated table can be found [here](https://www.synapse.org/#!Synapse:syn21046734/tables/)

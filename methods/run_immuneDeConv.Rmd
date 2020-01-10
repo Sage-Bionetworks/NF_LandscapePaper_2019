@@ -1,0 +1,104 @@
+---
+title: "Run tumor immune deconvolution"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(synapser)
+synLogin()
+require(tidyverse)
+```
+
+# Re-process RNA-Seq data
+
+First we have to get the data from the tables
+
+```{r get data}
+##get table query
+tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
+
+vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex,studyName,diagnosis,isCellLine,transplantationType"
+
+full.tab<-do.call(rbind,lapply(tabids$tableId,function(x) synTableQuery(paste('select',vars,'from',x))$asDataFrame()))
+
+full.tab$tumorType<-sapply(full.tab$tumorType,function(x) gsub('Malignant peripheral nerve sheath tumor',"Malignant Peripheral Nerve Sheath Tumor",x))
+
+tab<-full.tab%>%
+  subset(tumorType%in%c("Cutaneous Neurofibroma","Plexiform Neurofibroma","Malignant Peripheral Nerve Sheath Tumor","Neurofibroma"))%>%  subset(is.na(transplantationType))%>%
+  subset(isCellLine%in%c(NA,'FALSE'))
+
+DT::datatable(tab%>%group_by(tumorType,studyName)%>%summarize(samples=n_distinct(specimenID)))
+prefix='allPublicTissueData'
+```
+
+## Run immune deconvolution
+
+To run the deconvolution we use the `immuedeconv` package. This will iterate through `CIBERSORT`,`MCP Counter` and `xcell` and store the results in a Synapse table.
+
+_NOTE_: to run you must download the `cibersort` binaries directly from the website. 
+
+```{r run immune deconv}
+#store
+this.script='https://raw.githubusercontent.com/'
+library(immunedeconv)  
+
+runImmuneDeconv<-function(tab,method){
+  #run MCP counter
+
+  mat<-reshape2::acast(tab,Symbol~specimenID,value.var='totalCounts',fun.aggregate=mean,na.rm=T)
+  nas<-which(apply(mat,1,function(x) any(is.na(x))))
+  if(length(nas)>0)
+    mat<-mat[-nas,]
+
+  res<-deconvolute(mat,method)
+  
+  df<-dplyr::select(tab,c(studyName,sex,tumorType,specimenID,diagnosis))%>%
+      unique()%>%
+      rename(study='studyName')
+  rownames(df)<-df$specimenID
+
+  #save as heatmap with metadata
+  mtab<-res%>%select(-cell_type)%>%as.data.frame()
+  rownames(mtab)<-res$cell_type
+
+  library(pheatmap)
+  pheatmap(log2(mtab+0.01),annotation_col=select(df,-specimenID),
+      cellheight = 10,cellwidth=10,
+      file=paste0(prefix,'_',method,'Preds.pdf'), height=10,
+    labels_col=rep(" ",ncol(mtab)))
+  
+  ##now tidy up data to table
+  td<-tidyr::gather(res,key="specimenID",value="score",-cell_type )%>%
+    left_join(df,by='specimenID')
+  td$method=method
+  return(td)
+
+}
+
+
+
+##NEED TO DOWNLOD FILES MANUALLY I CANNOT DISTRIBUTE
+set_cibersort_binary('./CIBERSORT.R')
+set_cibersort_mat('./LM22.txt')
+synapse_table='syn21177277'
+
+#clear table
+res=synTableQuery(paste('select * from',synapse_table))
+synDelete(res)
+
+for(m in c('mcp_counter','xcell','cibersort')){
+  res<-runImmuneDeconv(tab,m)
+  DT::datatable(res)
+  synapser::synStore(synapser::Table(synapse_table,res),used='syn20449214',executed=this.script)
+}
+
+```
+
+Updated table can be found [here](https://www.synapse.org/#!Synapse:syn21177277).

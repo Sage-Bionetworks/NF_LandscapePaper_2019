@@ -26,7 +26,7 @@ Gene expression data is spread across four synapse projects:
 Since permissions are dispersed, we need to collect all the data. 
 
 ```{r table, warning=FALSE}
-require(dplyr)
+require(tidyverse)
 tabids<-synTableQuery('select distinct tableId from syn21221980')$asDataFrame()
 
 vars="specimenID,individualID,Symbol,totalCounts,zScore,tumorType,nf1Genotype,sex,studyName,diagnosis,isCellLine,transplantationType"
@@ -40,6 +40,7 @@ tab<-full.tab%>%
   subset(isCellLine%in%c(NA,'FALSE'))
 
 DT::datatable(tab%>%group_by(tumorType,studyName)%>%summarize(samples=n_distinct(specimenID)))
+#full.tab<-tab
 
 
 ```
@@ -63,7 +64,7 @@ x <- org.Hs.egSYMBOL2EG
 mapped_genes <- AnnotationDbi::mappedkeys(x)
 xx <- AnnotationDbi::as.list(x[mapped_genes])
 
-genes=unique(full.tab$Symbol)
+genes=unique(tab$Symbol)
 inds=match(genes,names(xx))
 genes<-genes[which(!is.na(inds))]
 inds<-inds[which(!is.na(inds))]
@@ -73,8 +74,8 @@ entrez_list=data.frame(gene=genes,entrezgene=unlist(sapply(xx[inds],function(y)y
 Then we can actually run the tool!
 ```{r run viper, echo=FALSE, warning=FALSE}
 #now create the data matrix
-require(dplyr)
-tidied.df<-full.tab%>%rename(gene='Symbol')%>%left_join(entrez_list,by='gene')
+
+tidied.df<-tab%>%rename(Symbol='gene')%>%left_join(entrez_list,by='gene')
 
 #tidied.df$specimenID<-make.names(tidied.df$specimenID)
 
@@ -93,7 +94,7 @@ rdf<-data.frame(res,entrezgene=rownames(res),check.names=F)
 tdf<-tidyr::gather(rdf,key=specimenID,value=metaviperscore,-entrezgene)
 
 gn<-tdf%>%left_join(entrez_list,by='entrezgene')
-pats<-tidied.df%>%select(specimenID,individualID,tumorType,nf1Genotype,sex)%>%distinct()
+pats<-tidied.df%>%dplyr::select(specimenID,individualID,tumorType,nf1Genotype,sex)%>%distinct()
 
 
 fdf<-gn%>%left_join(pats,by='specimenID')
@@ -112,7 +113,7 @@ synapse_table='syn21259610'
 res=synTableQuery(paste('select * from',synapse_table))
 synDelete(res)
 
-  synapser::synStore(synapser::Table(synapse_table,fdf),used='syn20449214',executed=this.script)
+  synapser::synStore(synapser::Table(synapse_table,fdf),used='syn20449214')
 ```
 
 Updated table can be found [here](https://www.synapse.org/#!Synapse:syn21046734/tables/)
